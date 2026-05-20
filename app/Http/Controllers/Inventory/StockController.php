@@ -14,12 +14,50 @@ use Inertia\Response;
 
 class StockController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $filters = $request->validate([
+            'warehouse_id' => ['nullable', 'integer'],
+            'type' => ['nullable', 'string'],
+            'search' => ['nullable', 'string'],
+        ]);
+
+        $query = Inventory::with([
+            'product:id,sku,name,type,min_stock',
+            'warehouse:id,code,name',
+        ]);
+
+        if (! empty($filters['warehouse_id'])) {
+            $query->where('warehouse_id', $filters['warehouse_id']);
+        }
+        if (! empty($filters['type'])) {
+            $query->whereHas('product', fn ($q) => $q->where('type', $filters['type']));
+        }
+        if (! empty($filters['search'])) {
+            $s = $filters['search'];
+            $query->whereHas('product', fn ($q) => $q
+                ->where('name', 'like', "%{$s}%")
+                ->orWhere('sku', 'like', "%{$s}%"));
+        }
+
         return Inertia::render('Inventory/Stock', [
-            'inventories' => Inventory::with(['product:id,sku,name,min_stock', 'warehouse:id,name'])
-                ->orderByDesc('id')
-                ->paginate(25),
+            'inventories' => $query->orderByDesc('id')->paginate(25)->withQueryString(),
+            'warehouses' => Warehouse::query()->withoutGlobalScopes()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'code', 'name']),
+            'productTypes' => [
+                Product::TYPE_SALEABLE_RETAIL => 'Retail',
+                Product::TYPE_COMPOUNDABLE_DRUG => 'Compoundable',
+                Product::TYPE_RAW_MATERIAL => 'Raw Material',
+                Product::TYPE_SERVICE => 'Service',
+                Product::TYPE_SERVICE_WITH_CONSUMPTION => 'Service w/ konsumsi',
+            ],
+            'filters' => [
+                'warehouse_id' => $filters['warehouse_id'] ?? null,
+                'type' => $filters['type'] ?? null,
+                'search' => $filters['search'] ?? null,
+            ],
         ]);
     }
 
