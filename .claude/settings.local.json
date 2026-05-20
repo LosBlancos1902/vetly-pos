@@ -26,7 +26,11 @@
       "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter\")",
       "Bash(git ls-remote *)",
       "Bash(awk '{print $1}')",
-      "Bash(echo \"origin: $\\(git ls-remote origin main)"
+      "Bash(echo \"origin: $\\(git ls-remote origin main)",
+      "Bash(./vendor/bin/pest tests/Tenant/POS/ --colors=never)",
+      "Bash(./vendor/bin/pest --colors=never)",
+      "Bash(git stash *)",
+      "Bash(./vendor/bin/pest tests/Tenant/ --colors=never)"
     ]
   }
 }
