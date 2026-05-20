@@ -28,6 +28,20 @@ class DemoSeeder extends Seeder
         );
         $owner->assignRole('owner');
 
+        // Apoteker demo user — production owner yang assign via /settings/users.
+        // Seeded here hanya supaya tester bisa login langsung sebagai apoteker.
+        // warehouse_id akan diisi setelah warehouse dibuat di bawah.
+        $apoteker = User::firstOrCreate(
+            ['email' => 'apoteker@vetly.id'],
+            [
+                'name' => 'Apoteker Demo',
+                'password' => Hash::make('demo123'),
+                'is_active' => true,
+                'email_verified_at' => now(),
+            ],
+        );
+        $apoteker->assignRole('apoteker');
+
         // Warehouse default
         DB::table('warehouses')->updateOrInsert(
             ['code' => 'TOKO-DEMO'],
@@ -42,6 +56,9 @@ class DemoSeeder extends Seeder
             ],
         );
         $warehouseId = (int) DB::table('warehouses')->where('code', 'TOKO-DEMO')->value('id');
+
+        // Pin apoteker ke warehouse default (rule: staff MUST have warehouse_id).
+        $apoteker->update(['warehouse_id' => $warehouseId]);
 
         // Category + brand
         $catId = DB::table('categories')->insertGetId([

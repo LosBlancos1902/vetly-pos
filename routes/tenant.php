@@ -12,6 +12,8 @@ use App\Http\Controllers\POS\ShiftController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Sales\SaleController;
 use App\Http\Controllers\Settings\TenantSettingsController;
+use App\Http\Controllers\Settings\RoleController as SettingsRoleController;
+use App\Http\Controllers\Settings\UserController as SettingsUserController;
 use Illuminate\Support\Facades\Route;
 use Stancl\Tenancy\Middleware\InitializeTenancyByDomain;
 use Stancl\Tenancy\Middleware\PreventAccessFromCentralDomains;
@@ -66,6 +68,19 @@ Route::middleware([
         // Settings
         Route::get('/settings/tenant', [TenantSettingsController::class, 'index'])
             ->middleware('can:settings.tenant')->name('settings.tenant');
+
+        Route::prefix('settings')->name('settings.')->group(function () {
+            Route::middleware('can:settings.users')->group(function () {
+                Route::get('/users', [SettingsUserController::class, 'index'])->name('users.index');
+                Route::post('/users', [SettingsUserController::class, 'store'])->name('users.store');
+                Route::put('/users/{user}', [SettingsUserController::class, 'update'])->name('users.update');
+                Route::delete('/users/{user}', [SettingsUserController::class, 'destroy'])->name('users.destroy');
+            });
+            Route::middleware('can:settings.roles')->group(function () {
+                Route::get('/roles', [SettingsRoleController::class, 'index'])->name('roles.index');
+                Route::put('/roles/{role}', [SettingsRoleController::class, 'update'])->name('roles.update');
+            });
+        });
     });
 
     // Vetly inbound webhook (token-guarded inside the controller).

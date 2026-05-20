@@ -40,6 +40,10 @@ class DefaultRolesSeeder extends Seeder
         'settings.roles',
         // Warehouse scope
         'warehouse.view_all',     // see/switch across warehouses (owner/manager)
+        // Clinic / apoteker
+        'master.compounds',       // CRUD compound recipes
+        'master.services',        // CRUD service bundles
+        'pharmacy.compound',      // execute racikan
     ];
 
     /**
@@ -51,9 +55,19 @@ class DefaultRolesSeeder extends Seeder
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
             'inventory.view', 'inventory.adjustment', 'inventory.transfer', 'inventory.opname',
             'purchasing.manage', 'accounting.view', 'accounting.journal.post',
-            'master.manage', 'reports.view', 'settings.users', 'settings.roles',
+            'master.manage', 'master.compounds', 'master.services',
+            'pharmacy.compound',
+            'reports.view', 'settings.users', 'settings.roles',
             'warehouse.view_all',
             // NOTE: no 'settings.tenant'
+        ],
+        'apoteker' => [
+            // Klinik staff — racik & jual obat racikan + tindakan.
+            // Permission yang dipakai sehari-hari oleh seorang apoteker:
+            'pos.access', 'pos.sell', 'pos.shift.manage',
+            'master.compounds', 'master.services',
+            'pharmacy.compound',
+            'inventory.view',
         ],
         'supervisor' => [
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
