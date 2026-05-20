@@ -89,6 +89,54 @@ class JournalEngine
     }
 
     /**
+     * Mixed retail + service sale (kasir transaksi gabungan):
+     *   D 1101 Kas              = (retailSubtotal − retailDiscount) + serviceSubtotal + tax
+     *   D 4199 Diskon Penjualan = retailDiscount
+     *   C 4101 Penjualan Retail = retailSubtotal
+     *   C 4103 Pendapatan Jasa  = serviceSubtotal
+     *   C 2102 Hutang Pajak     = tax
+     *   D 5100 HPP Retail       = retailCogs
+     *   C 1201 Persediaan       = retailCogs
+     *   D 5102 HPP Klinik       = serviceCogs
+     *   C 1201 Persediaan       = serviceCogs
+     *
+     * Used when a single Sale has both retail goods and service lines.
+     * Caller is responsible for routing service consumption via
+     * ServiceBundleService before posting (so 1201 deductions land
+     * via stock movements separately).
+     */
+    public function postSplitSale(
+        Sale $sale,
+        float $retailSubtotal,
+        float $retailDiscount,
+        float $retailCogs,
+        float $serviceSubtotal,
+        float $serviceCogs,
+        float $tax = 0.0,
+    ): Journal {
+        $cash = $retailSubtotal - $retailDiscount + $serviceSubtotal + $tax;
+
+        $lines = [
+            ['1101', $cash, 0.0],
+            ['4199', $retailDiscount, 0.0],
+            ['4101', 0.0, $retailSubtotal],
+            ['4103', 0.0, $serviceSubtotal],
+            ['2102', 0.0, $tax],
+            ['5100', $retailCogs, 0.0],
+            ['1201', 0.0, $retailCogs],
+            ['5102', $serviceCogs, 0.0],
+            ['1201', 0.0, $serviceCogs],
+        ];
+
+        return $this->post(
+            description: "Penjualan #{$sale->invoice_no}",
+            refType: Sale::class,
+            refId: $sale->id,
+            lines: $lines,
+        );
+    }
+
+    /**
      * Service sale (jasa, dengan atau tanpa konsumsi bahan):
      *   D 1101 Kas            = total
      *   C 4103 Pendapatan Jasa = subtotal

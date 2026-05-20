@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Tenant\AuditLog;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\Sale;
+use App\Models\Tenant\ServiceBundle;
 use App\Models\Tenant\Warehouse;
 use App\Services\JournalEngine;
 use App\Services\ReceiptPrinter;
+use App\Services\ServiceBundleService;
 use App\Services\StockGuard;
 use App\Services\StockMovement;
 use App\Services\VetlySyncService;
@@ -39,7 +41,7 @@ class CashierController extends Controller
         }
 
         $warehouseId = (int) $request->integer('warehouse_id');
-        $check = $guard->canSell($product->id, $warehouseId, 1, $request->user());
+        $check = $guard->canSell($product->id, $warehouseId, 1, null, $request->user());
 
         return response()->json([
             'found' => true,
@@ -48,8 +50,13 @@ class CashierController extends Controller
         ]);
     }
 
-    public function store(Request $request, StockMovement $stock, JournalEngine $journal, VetlySyncService $vetly): JsonResponse
-    {
+    public function store(
+        Request $request,
+        StockMovement $stock,
+        JournalEngine $journal,
+        ServiceBundleService $serviceBundles,
+        VetlySyncService $vetly,
+    ): JsonResponse {
         $data = $request->validate([
             'warehouse_id' => ['required', 'integer'],
             'customer_id' => ['nullable', 'integer'],
@@ -66,7 +73,7 @@ class CashierController extends Controller
 
         $warehouse = Warehouse::findOrFail($data['warehouse_id']);
 
-        $sale = DB::transaction(function () use ($data, $request, $warehouse, $stock, $journal) {
+        $sale = DB::transaction(function () use ($data, $request, $warehouse, $stock, $journal, $serviceBundles) {
             $subtotal = 0;
             $discount = 0;
             foreach ($data['items'] as $i) {
@@ -89,8 +96,18 @@ class CashierController extends Controller
                 'status' => 'completed',
             ]);
 
+            // Aggregate per-portion totals so we can split the journal by
+            // revenue stream (retail vs jasa).
+            $retailSubtotal = 0.0;
+            $retailDiscount = 0.0;
+            $retailCogs = 0.0;
+            $serviceSubtotal = 0.0;
+            $serviceCogs = 0.0;
+
             foreach ($data['items'] as $i) {
                 $product = Product::findOrFail($i['product_id']);
+                $lineSubtotal = (float) $i['qty'] * (float) $i['price'] - (float) ($i['discount_amount'] ?? 0);
+
                 $sale->items()->create([
                     'product_id' => $product->id,
                     'unit_id' => $i['unit_id'],
@@ -98,14 +115,45 @@ class CashierController extends Controller
                     'price' => $i['price'],
                     'discount_amount' => $i['discount_amount'] ?? 0,
                     'cost_snapshot' => $product->cost_avg,
-                    'subtotal' => $i['qty'] * $i['price'] - ($i['discount_amount'] ?? 0),
+                    'subtotal' => $lineSubtotal,
                 ]);
 
-                $stock->record($product, $warehouse, 'sale', (float) $i['qty'], (float) $product->cost_avg, [
-                    'ref_type' => Sale::class,
-                    'ref_id' => $sale->id,
-                    'notes' => "Penjualan {$sale->invoice_no}",
-                ]);
+                $isService = in_array($product->type, [Product::TYPE_SERVICE, Product::TYPE_SERVICE_WITH_CONSUMPTION], true);
+                if ($isService) {
+                    $serviceSubtotal += $lineSubtotal;
+
+                    // Find the active bundle to consume components. A service
+                    // product without a bundle is sellable as a flat-fee item.
+                    $bundle = ServiceBundle::where('product_id', $product->id)
+                        ->where('is_active', true)
+                        ->latest('id')
+                        ->first();
+
+                    if ($bundle && $bundle->items()->exists()) {
+                        $result = $serviceBundles->execute(
+                            bundle: $bundle,
+                            warehouse: $warehouse,
+                            user: $request->user(),
+                            optionalIncluded: null,
+                            options: [
+                                'ref_type' => Sale::class,
+                                'ref_id' => $sale->id,
+                                'notes' => "Penjualan {$sale->invoice_no} (jasa: {$bundle->name})",
+                            ],
+                        );
+                        $serviceCogs += (float) $result['cost_total'];
+                    }
+                } else {
+                    $retailSubtotal += (float) $i['qty'] * (float) $i['price'];
+                    $retailDiscount += (float) ($i['discount_amount'] ?? 0);
+                    $retailCogs += (float) $product->cost_avg * (float) $i['qty'];
+
+                    $stock->record($product, $warehouse, 'sale', (float) $i['qty'], (float) $product->cost_avg, [
+                        'ref_type' => Sale::class,
+                        'ref_id' => $sale->id,
+                        'notes' => "Penjualan {$sale->invoice_no}",
+                    ]);
+                }
             }
 
             foreach ($data['payments'] as $p) {
@@ -117,7 +165,20 @@ class CashierController extends Controller
                 ]);
             }
 
-            $journal->postSale($sale->load('items'));
+            // Single journal that captures both retail + service portions.
+            // (postSale only knows about retail accounts.)
+            if ($serviceSubtotal > 0) {
+                $journal->postSplitSale(
+                    sale: $sale->load('items'),
+                    retailSubtotal: $retailSubtotal,
+                    retailDiscount: $retailDiscount,
+                    retailCogs: $retailCogs,
+                    serviceSubtotal: $serviceSubtotal,
+                    serviceCogs: $serviceCogs,
+                );
+            } else {
+                $journal->postSale($sale->load('items'));
+            }
 
             AuditLog::create([
                 'user_id' => $request->user()->id,

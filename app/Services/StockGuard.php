@@ -48,6 +48,19 @@ class StockGuard
             ];
         }
 
+        // Services don't track inventory; consumption (if any) is handled by
+        // ServiceBundleService at sale time.
+        if ($product->type === Product::TYPE_SERVICE
+            || $product->type === Product::TYPE_SERVICE_WITH_CONSUMPTION) {
+            return [
+                'allowed' => true,
+                'requires_confirmation' => false,
+                'available' => '0.0000',
+                'requested_base' => number_format((float) $qty, UnitConverter::SCALE, '.', ''),
+                'message' => null,
+            ];
+        }
+
         $requestedBase = $unitId
             ? $this->units->toBase($product, $qty, $unitId)
             : number_format((float) $qty, UnitConverter::SCALE, '.', '');

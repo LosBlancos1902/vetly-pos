@@ -9,6 +9,7 @@ use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
 use App\Http\Controllers\Master\ServiceController;
+use App\Http\Controllers\Pharmacy\CompoundController as PharmacyCompoundController;
 use App\Http\Controllers\POS\CashierController;
 use App\Http\Controllers\POS\ShiftController;
 use App\Http\Controllers\ProfileController;
@@ -65,6 +66,13 @@ Route::middleware([
             ->parameters(['services' => 'bundle'])
             ->names('master.services')->only(['index', 'store', 'update', 'destroy'])
             ->middleware('can:master.services');
+
+        // Pharmacy — compound execution (racikan)
+        Route::middleware('can:pharmacy.compound')->prefix('pharmacy')->name('pharmacy.')->group(function () {
+            Route::get('/compound', [PharmacyCompoundController::class, 'index'])->name('compound.index');
+            Route::get('/compound/preview', [PharmacyCompoundController::class, 'preview'])->name('compound.preview');
+            Route::post('/compound/execute', [PharmacyCompoundController::class, 'execute'])->name('compound.execute');
+        });
 
         // Inventory
         Route::get('/inventory/stock', [StockController::class, 'index'])->name('inventory.stock');

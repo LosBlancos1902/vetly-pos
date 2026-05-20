@@ -7,6 +7,7 @@ import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Table } from '@/Components/ui/table';
+import { Badge } from '@/Components/ui/badge';
 import { rupiah } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
 
@@ -16,7 +17,10 @@ interface CartLine {
     name: string;
     price: number;
     qty: number;
+    type: string;
 }
+
+const SERVICE_TYPES = ['service', 'service_with_consumption'];
 
 interface Warehouse {
     id: number;
@@ -68,6 +72,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                         name: p.name,
                         price: Number(p.price),
                         qty: 1,
+                        type: p.type,
                     },
                 ];
             });
@@ -125,10 +130,19 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                             </td>
                                         </tr>
                                     )}
-                                    {cart.map((l, i) => (
+                                    {cart.map((l, i) => {
+                                        const isService = SERVICE_TYPES.includes(l.type);
+                                        return (
                                         <tr key={i} className="border-b">
                                             <td className="p-3">
-                                                <div className="font-medium">{l.name}</div>
+                                                <div className="flex items-center gap-2 font-medium">
+                                                    {l.name}
+                                                    {isService && (
+                                                        <Badge variant="info" className="text-[10px]">
+                                                            JASA
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                                 <div className="text-sm text-muted-foreground">
                                                     {rupiah(l.price)}
                                                 </div>
@@ -142,6 +156,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                                     onChange={(e) =>
                                                         setQty(i, Number(e.target.value))
                                                     }
+                                                    disabled={isService}
                                                 />
                                             </td>
                                             <td className="p-3 text-right font-semibold">
@@ -157,7 +172,8 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                                 </Button>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </Table>
                         </CardContent>
