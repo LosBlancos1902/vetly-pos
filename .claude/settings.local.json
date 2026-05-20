@@ -16,7 +16,10 @@
       "Bash(npx tsc *)",
       "Bash(php *)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService\")"
     ]
   }
 }

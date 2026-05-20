@@ -6,7 +6,9 @@ use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Api\Vetly\VetlyWebhookController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Inventory\StockController;
+use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
+use App\Http\Controllers\Master\ServiceController;
 use App\Http\Controllers\POS\CashierController;
 use App\Http\Controllers\POS\ShiftController;
 use App\Http\Controllers\ProfileController;
@@ -53,6 +55,16 @@ Route::middleware([
         // Master data
         Route::resource('master/products', ProductController::class)
             ->names('master.products')->only(['index', 'store', 'update', 'destroy']);
+
+        Route::resource('master/compounds', CompoundController::class)
+            ->parameters(['compounds' => 'recipe'])
+            ->names('master.compounds')->only(['index', 'store', 'update', 'destroy'])
+            ->middleware('can:master.compounds');
+
+        Route::resource('master/services', ServiceController::class)
+            ->parameters(['services' => 'bundle'])
+            ->names('master.services')->only(['index', 'store', 'update', 'destroy'])
+            ->middleware('can:master.services');
 
         // Inventory
         Route::get('/inventory/stock', [StockController::class, 'index'])->name('inventory.stock');
