@@ -23,7 +23,9 @@
       "Bash(./vendor/bin/pest)",
       "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter|StockMovement|StockCard\")",
       "Bash(echo \"exit=$?\")",
-      "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter\")"
+      "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter\")",
+      "Bash(git ls-remote *)",
+      "Bash(awk '{print $1}')"
     ]
   }
 }
