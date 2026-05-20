@@ -37,4 +37,9 @@ class StockMovement extends Model
     {
         return $this->belongsTo(MasterUnit::class, 'unit_id_input');
     }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 }

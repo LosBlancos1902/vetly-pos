@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Api\Vetly\VetlyWebhookController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Inventory\StockCardController;
 use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
@@ -77,6 +78,8 @@ Route::middleware([
         // Inventory
         Route::get('/inventory/stock', [StockController::class, 'index'])->name('inventory.stock');
         Route::post('/inventory/adjustment', [StockController::class, 'adjust'])->name('inventory.adjustment');
+        Route::get('/inventory/stock-card/{product}', [StockCardController::class, 'show'])
+            ->middleware('can:inventory.view')->name('inventory.stock_card');
 
         // Sales history
         Route::get('/sales', [SaleController::class, 'index'])->name('sales.index');

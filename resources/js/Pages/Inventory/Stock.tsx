@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     Table,
     TableBody,
@@ -14,6 +14,7 @@ import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Button } from '@/Components/ui/button';
 import { Badge } from '@/Components/ui/badge';
+import { formatQty, rupiah } from '@/lib/utils';
 
 interface Row {
     id: number;
@@ -145,12 +146,13 @@ export default function Stock({ inventories, warehouses, productTypes, filters }
                                     <TableHead>Gudang</TableHead>
                                     <TableHead className="text-right">Qty</TableHead>
                                     <TableHead className="text-right">HPP Rata2</TableHead>
+                                    <TableHead className="text-right">Aksi</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {inventories.data.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                        <TableCell colSpan={6} className="text-center text-muted-foreground">
                                             Tidak ada data dengan filter ini.
                                         </TableCell>
                                     </TableRow>
@@ -167,8 +169,21 @@ export default function Stock({ inventories, warehouses, productTypes, filters }
                                             </Badge>
                                         </TableCell>
                                         <TableCell>{r.warehouse?.name}</TableCell>
-                                        <TableCell className="text-right">{r.qty}</TableCell>
-                                        <TableCell className="text-right">{r.cost_avg}</TableCell>
+                                        <TableCell className="text-right font-mono">{formatQty(r.qty)}</TableCell>
+                                        <TableCell className="text-right">{rupiah(r.cost_avg)}</TableCell>
+                                        <TableCell className="text-right">
+                                            {r.product && (
+                                                <Link
+                                                    href={
+                                                        route('inventory.stock_card', r.product.id) +
+                                                        (r.warehouse?.id ? `?warehouse_id=${r.warehouse.id}` : '')
+                                                    }
+                                                    className="text-sm text-sky-700 hover:underline"
+                                                >
+                                                    Kartu Stok →
+                                                </Link>
+                                            )}
+                                        </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>

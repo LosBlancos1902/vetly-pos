@@ -22,7 +22,8 @@
       "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService\")",
       "Bash(./vendor/bin/pest)",
       "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter|StockMovement|StockCard\")",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter\")"
     ]
   }
 }
