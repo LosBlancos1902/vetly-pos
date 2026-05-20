@@ -12,11 +12,15 @@ return new class extends Migration
             $table->id();
             $table->string('code')->unique();
             $table->string('name');
-            $table->enum('type', ['gudang', 'toko', 'etalase'])->default('toko');
-            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->enum('warehouse_type', ['petshop', 'klinik', 'apotek_klinik', 'gudang'])
+                ->default('petshop');
             $table->boolean('is_active')->default(true);
+            $table->boolean('is_default')->default(false);
             $table->text('address')->nullable();
             $table->timestamps();
+
+            $table->index('warehouse_type');
+            $table->index(['is_active', 'is_default']);
         });
     }
 

@@ -38,6 +38,8 @@ class DefaultRolesSeeder extends Seeder
         'settings.tenant',
         'settings.users',
         'settings.roles',
+        // Warehouse scope
+        'warehouse.view_all',     // see/switch across warehouses (owner/manager)
     ];
 
     /**
@@ -50,6 +52,7 @@ class DefaultRolesSeeder extends Seeder
             'inventory.view', 'inventory.adjustment', 'inventory.transfer', 'inventory.opname',
             'purchasing.manage', 'accounting.view', 'accounting.journal.post',
             'master.manage', 'reports.view', 'settings.users', 'settings.roles',
+            'warehouse.view_all',
             // NOTE: no 'settings.tenant'
         ],
         'supervisor' => [

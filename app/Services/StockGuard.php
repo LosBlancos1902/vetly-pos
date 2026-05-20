@@ -7,37 +7,69 @@ use App\Models\Tenant\Product;
 use App\Models\User;
 
 /**
- * Decide whether a product can be sold given current stock and the
- * acting user's permissions.
+ * Pre-flight check (advisory, not transactional) for whether a product can
+ * be sold at the requested quantity. The authoritative race-safe check
+ * runs inside StockMovement::record() under DB lock.
+ *
+ * Quantities here are converted to BASE unit before comparing to the
+ * stored inventory.qty.
  *
  * Return shape:
- *   allowed (bool), requires_confirmation (bool), available (float), message (?string)
+ *   allowed (bool), requires_confirmation (bool), available (string base qty),
+ *   requested_base (string base qty), message (?string)
  */
 class StockGuard
 {
     public const PERM_STOCK_MINUS = 'pos.sell.stock_minus';
 
-    /**
-     * @return array{allowed: bool, requires_confirmation: bool, available: float, message: ?string}
-     */
-    public function canSell(int $productId, int $warehouseId, float $qty, User $user): array
+    public function __construct(private readonly UnitConverter $units)
     {
-        $inventory = Inventory::where('product_id', $productId)
+    }
+
+    /**
+     * @return array{
+     *   allowed: bool,
+     *   requires_confirmation: bool,
+     *   available: string,
+     *   requested_base: string,
+     *   message: ?string
+     * }
+     */
+    public function canSell(int $productId, int $warehouseId, float|string $qty, ?int $unitId, User $user): array
+    {
+        $product = Product::with('units')->find($productId);
+        if (! $product) {
+            return [
+                'allowed' => false,
+                'requires_confirmation' => false,
+                'available' => '0.0000',
+                'requested_base' => '0.0000',
+                'message' => "Produk #{$productId} tidak ditemukan.",
+            ];
+        }
+
+        $requestedBase = $unitId
+            ? $this->units->toBase($product, $qty, $unitId)
+            : number_format((float) $qty, UnitConverter::SCALE, '.', '');
+
+        $inventory = Inventory::query()
+            ->withoutGlobalScopes()
+            ->where('product_id', $productId)
             ->where('warehouse_id', $warehouseId)
             ->first();
 
-        $available = (float) ($inventory->qty ?? 0);
+        $available = number_format((float) ($inventory->qty ?? 0), UnitConverter::SCALE, '.', '');
 
-        if ($available >= $qty) {
+        if (bccomp($available, $requestedBase, UnitConverter::SCALE) >= 0) {
             return [
                 'allowed' => true,
                 'requires_confirmation' => false,
                 'available' => $available,
+                'requested_base' => $requestedBase,
                 'message' => null,
             ];
         }
 
-        $product = Product::find($productId);
         $mayOverride = $user->can(self::PERM_STOCK_MINUS)
             || (bool) ($product->allow_stock_minus ?? false);
 
@@ -46,7 +78,8 @@ class StockGuard
                 'allowed' => true,
                 'requires_confirmation' => true,
                 'available' => $available,
-                'message' => "Stok tidak cukup (tersedia {$available}). Membutuhkan konfirmasi override.",
+                'requested_base' => $requestedBase,
+                'message' => "Stok tidak cukup (tersedia {$available} base). Membutuhkan konfirmasi override.",
             ];
         }
 
@@ -54,7 +87,8 @@ class StockGuard
             'allowed' => false,
             'requires_confirmation' => false,
             'available' => $available,
-            'message' => "Stok tidak cukup (tersedia {$available}) dan Anda tidak punya izin override.",
+            'requested_base' => $requestedBase,
+            'message' => "Stok tidak cukup (tersedia {$available} base) dan Anda tidak punya izin override.",
         ];
     }
 }

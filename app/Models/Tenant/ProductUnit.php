@@ -11,8 +11,9 @@ class ProductUnit extends Model
     protected $guarded = [];
 
     protected $casts = [
+        'level' => 'integer',
         'conversion_to_base' => 'decimal:4',
-        'price_override' => 'decimal:2',
+        'price' => 'decimal:2',
         'is_purchase_unit' => 'boolean',
         'is_sale_unit' => 'boolean',
     ];
@@ -25,5 +26,10 @@ class ProductUnit extends Model
     public function unit(): BelongsTo
     {
         return $this->belongsTo(MasterUnit::class, 'unit_id');
+    }
+
+    public function isBase(): bool
+    {
+        return $this->level === 1;
     }
 }

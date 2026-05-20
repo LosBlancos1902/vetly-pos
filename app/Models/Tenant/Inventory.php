@@ -2,11 +2,14 @@
 
 namespace App\Models\Tenant;
 
+use App\Models\Tenant\Concerns\ScopedToWarehouse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Inventory extends Model
 {
+    use ScopedToWarehouse;
+
     protected $table = 'inventories';
     protected $guarded = [];
 

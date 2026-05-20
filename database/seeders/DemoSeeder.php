@@ -27,12 +27,23 @@ class DemoSeeder extends Seeder
         );
         $owner->assignRole('owner');
 
-        // Warehouse
-        $warehouseId = DB::table('warehouses')->updateOrInsert(
+        // Warehouse — 1 outlet = 1 warehouse
+        DB::table('warehouses')->updateOrInsert(
             ['code' => 'TOKO-DEMO'],
-            ['name' => 'Toko Demo', 'type' => 'toko', 'is_active' => true, 'address' => 'Jakarta', 'created_at' => now(), 'updated_at' => now()],
+            [
+                'name' => 'Toko Demo',
+                'warehouse_type' => 'petshop',
+                'is_active' => true,
+                'is_default' => true,
+                'address' => 'Jakarta',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         );
         $warehouseId = DB::table('warehouses')->where('code', 'TOKO-DEMO')->value('id');
+
+        // Bind owner to warehouse-agnostic (NULL = sees all) — owner doesn't get fixed to one outlet.
+        // For demo we leave $owner->warehouse_id null; cashier seeder (if any) would set theirs.
 
         // Category + brand
         $catId = DB::table('categories')->insertGetId(['name' => 'Umum', 'is_active' => true, 'created_at' => now(), 'updated_at' => now()]);
@@ -66,9 +77,11 @@ class DemoSeeder extends Seeder
             DB::table('product_units')->insert([
                 'product_id' => $pid,
                 'unit_id' => $pcsId,
+                'level' => 1,
                 'conversion_to_base' => 1,
                 'is_purchase_unit' => true,
                 'is_sale_unit' => true,
+                'price' => $price,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

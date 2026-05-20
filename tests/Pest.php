@@ -18,6 +18,11 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
+// Tenant tests run against the real `demo` tenant DB. They explicitly avoid
+// RefreshDatabase because concurrency tests need committed state visible
+// across separate connections / forked processes.
+pest()->extend(Tests\TenantTestCase::class)->in('Tenant');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
