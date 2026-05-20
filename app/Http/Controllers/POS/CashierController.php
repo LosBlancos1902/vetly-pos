@@ -4,6 +4,7 @@ namespace App\Http\Controllers\POS;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\AuditLog;
+use App\Models\Tenant\Inventory;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\Sale;
 use App\Models\Tenant\ServiceBundle;
@@ -48,6 +49,65 @@ class CashierController extends Controller
             'product' => $product,
             'stock' => $check,
         ]);
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+        $warehouseId = (int) $request->integer('warehouse_id');
+
+        if (mb_strlen($q) < 2) {
+            return response()->json(['results' => []]);
+        }
+
+        $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $q).'%';
+
+        $products = Product::query()
+            ->where('is_active', true)
+            ->where('is_sellable_directly', true)
+            ->where('type', '!=', Product::TYPE_RAW_MATERIAL)
+            ->where(function ($w) use ($like) {
+                $w->where('name', 'like', $like)
+                    ->orWhere('sku', 'like', $like)
+                    ->orWhere('barcode', 'like', $like);
+            })
+            ->orderBy('name')
+            ->limit(20)
+            ->get(['id', 'sku', 'barcode', 'name', 'type', 'price', 'base_unit_id']);
+
+        if ($products->isEmpty()) {
+            return response()->json(['results' => []]);
+        }
+
+        $serviceTypes = [Product::TYPE_SERVICE, Product::TYPE_SERVICE_WITH_CONSUMPTION];
+        $stockableIds = $products->reject(fn ($p) => in_array($p->type, $serviceTypes, true))
+            ->pluck('id')->all();
+
+        $inventory = $stockableIds && $warehouseId
+            ? Inventory::query()
+                ->withoutGlobalScopes()
+                ->where('warehouse_id', $warehouseId)
+                ->whereIn('product_id', $stockableIds)
+                ->pluck('qty', 'product_id')
+            : collect();
+
+        $results = $products->map(function ($p) use ($inventory, $serviceTypes) {
+            $isService = in_array($p->type, $serviceTypes, true);
+
+            return [
+                'id' => $p->id,
+                'sku' => $p->sku,
+                'barcode' => $p->barcode,
+                'name' => $p->name,
+                'type' => $p->type,
+                'price' => (float) $p->price,
+                'base_unit_id' => $p->base_unit_id,
+                'stock_qty' => $isService ? null : (float) ($inventory[$p->id] ?? 0),
+                'is_service' => $isService,
+            ];
+        });
+
+        return response()->json(['results' => $results]);
     }
 
     public function store(

@@ -10,6 +10,7 @@ import { Table } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
 import { rupiah } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
+import ProductPicker from './ProductPicker';
 
 interface CartLine {
     product_id: number;
@@ -33,22 +34,17 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
     const [cart, setCart] = useState<CartLine[]>([]);
     const [barcode, setBarcode] = useState('');
     const [payOpen, setPayOpen] = useState(false);
+    const [pickerOpen, setPickerOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
 
-    async function onScan(e: React.FormEvent) {
-        e.preventDefault();
-        if (!barcode.trim()) return;
+    async function lookupAndAdd(query: string) {
         try {
             const { data } = await axios.get(
-                route('pos.scan', { barcode: barcode.trim() }),
+                route('pos.scan', { barcode: query }),
                 { params: { warehouse_id: warehouseId } },
             );
-            if (!data.found) {
-                toast.error('Produk tidak ditemukan');
-                return;
-            }
             if (!data.stock.allowed) {
                 toast.error(data.stock.message);
                 return;
@@ -76,11 +72,19 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                     },
                 ];
             });
-            setBarcode('');
-            inputRef.current?.focus();
-        } catch {
-            toast.error('Gagal scan produk');
+        } catch (err: unknown) {
+            const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+            toast.error(status === 404 ? 'Produk tidak ditemukan' : 'Gagal scan produk');
         }
+    }
+
+    async function onScan(e: React.FormEvent) {
+        e.preventDefault();
+        const q = barcode.trim();
+        if (!q) return;
+        await lookupAndAdd(q);
+        setBarcode('');
+        inputRef.current?.focus();
     }
 
     function setQty(idx: number, qty: number) {
@@ -117,6 +121,9 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                             placeholder="Scan / ketik barcode lalu Enter"
                         />
                         <Button type="submit">Tambah</Button>
+                        <Button type="button" variant="secondary" onClick={() => setPickerOpen(true)}>
+                            Cari Produk
+                        </Button>
                     </form>
 
                     <Card>
@@ -199,6 +206,13 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                     </Card>
                 </div>
             </div>
+
+            <ProductPicker
+                open={pickerOpen}
+                warehouseId={warehouseId}
+                onClose={() => setPickerOpen(false)}
+                onPick={(p) => lookupAndAdd(p.sku)}
+            />
 
             <PaymentDialog
                 open={payOpen}

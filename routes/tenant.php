@@ -48,6 +48,7 @@ Route::middleware([
         Route::prefix('pos')->name('pos.')->group(function () {
             Route::get('/', [CashierController::class, 'index'])->name('cashier');
             Route::get('/products/scan/{barcode}', [CashierController::class, 'scan'])->name('scan');
+            Route::get('/products/search', [CashierController::class, 'search'])->name('search');
             Route::post('/sales', [CashierController::class, 'store'])->name('sales.store');
             Route::get('/sales/{sale}/receipt', [CashierController::class, 'receipt'])->name('receipt');
             Route::post('/shifts/open', [ShiftController::class, 'open'])->name('shifts.open');
