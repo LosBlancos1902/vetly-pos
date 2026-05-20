@@ -21,7 +21,8 @@
       "Bash(git push *)",
       "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService\")",
       "Bash(./vendor/bin/pest)",
-      "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter|StockMovement|StockCard\")"
+      "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter|StockMovement|StockCard\")",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
