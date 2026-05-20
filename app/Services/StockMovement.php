@@ -32,7 +32,10 @@ class StockMovement
     /** Movement types that increase stock. */
     private const INBOUND = [
         'purchase', 'transfer_in', 'adjustment_plus', 'return_in', 'opname_plus',
+        'compound_in',
     ];
+    // Outbound (decrease): sale, transfer_out, adjustment_minus, return_out,
+    // opname_minus, compound_out, service_consumption.
 
     public const PERM_STOCK_MINUS = 'pos.sell.stock_minus';
 

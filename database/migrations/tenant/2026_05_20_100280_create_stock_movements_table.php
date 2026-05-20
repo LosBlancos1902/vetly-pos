@@ -16,6 +16,7 @@ return new class extends Migration
                 'purchase', 'sale', 'transfer_in', 'transfer_out',
                 'adjustment_plus', 'adjustment_minus', 'return_in', 'return_out',
                 'opname_plus', 'opname_minus',
+                'compound_in', 'compound_out', 'service_consumption',
             ]);
             $table->decimal('qty', 15, 4);                       // always in BASE unit
             $table->decimal('cost', 15, 2);

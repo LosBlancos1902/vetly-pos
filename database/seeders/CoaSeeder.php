@@ -39,10 +39,15 @@ class CoaSeeder extends Seeder
 
             ['4100', 'Penjualan', 'revenue', 'credit', null, 1],
             ['4101', 'Penjualan Retail', 'revenue', 'credit', '4100', 2],
-            ['4102', 'Penjualan Online', 'revenue', 'credit', '4100', 2],
+            ['4102', 'Penjualan Klinik', 'revenue', 'credit', '4100', 2],
+            ['4103', 'Pendapatan Jasa', 'revenue', 'credit', '4100', 2],
+            ['4104', 'Pendapatan Jasa Racik', 'revenue', 'credit', '4100', 2],
+            ['4106', 'Penjualan Online', 'revenue', 'credit', '4100', 2],
             ['4199', 'Diskon Penjualan', 'revenue', 'debit', '4100', 2], // contra-revenue
 
             ['5100', 'HPP', 'cogs', 'debit', null, 1],
+            ['5101', 'HPP Retail', 'cogs', 'debit', '5100', 2],
+            ['5102', 'HPP Klinik', 'cogs', 'debit', '5100', 2],
 
             ['6100', 'Beban', 'expense', 'debit', null, 1],
             ['6101', 'Beban Gaji', 'expense', 'debit', '6100', 2],

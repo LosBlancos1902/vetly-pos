@@ -17,6 +17,10 @@ class UnitSeeder extends Seeder
             ['code' => 'gram',  'name' => 'Gram',   'is_base' => false],
             ['code' => 'liter', 'name' => 'Liter',  'is_base' => true],
             ['code' => 'ml',    'name' => 'Mililiter', 'is_base' => false],
+            ['code' => 'mg',    'name' => 'Miligram', 'is_base' => false],
+            ['code' => 'box',   'name' => 'Box',    'is_base' => false],
+            ['code' => 'vial',  'name' => 'Vial',   'is_base' => true],
+            ['code' => 'btl',   'name' => 'Botol',  'is_base' => false],
         ];
 
         foreach ($units as $u) {

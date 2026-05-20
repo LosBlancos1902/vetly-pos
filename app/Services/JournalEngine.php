@@ -46,6 +46,81 @@ class JournalEngine
     }
 
     /**
+     * Compound sale (racikan):
+     *   D 1101 Kas             = total
+     *   D 4199 Diskon Penjualan = discount
+     *   C 4102 Penjualan Klinik = subtotal MINUS racik_fee_revenue
+     *   C 4104 Pendapatan Jasa Racik = racik_fee_revenue (jika > 0)
+     *   C 2102 Hutang Pajak     = tax
+     *   D 5102 HPP Klinik       = COGS bahan
+     *   C 1201 Persediaan Retail = COGS bahan
+     *
+     * `racikFeeRevenue` lets the caller split out racik service portion from
+     * goods revenue. Pass 0 to fold everything into 4102.
+     */
+    public function postCompoundSale(
+        string $ref,
+        ?int $refId,
+        float $total,
+        float $subtotal,
+        float $discount,
+        float $tax,
+        float $cogs,
+        float $racikFeeRevenue = 0.0,
+    ): Journal {
+        $goodsRevenue = round($subtotal - $racikFeeRevenue, 2);
+
+        $lines = [
+            ['1101', $total, 0.0],
+            ['4199', $discount, 0.0],
+            ['4102', 0.0, $goodsRevenue],
+            ['4104', 0.0, $racikFeeRevenue],
+            ['2102', 0.0, $tax],
+            ['5102', $cogs, 0.0],
+            ['1201', 0.0, $cogs],
+        ];
+
+        return $this->post(
+            description: "Penjualan racikan {$ref}",
+            refType: 'compound_sale',
+            refId: $refId,
+            lines: $lines,
+        );
+    }
+
+    /**
+     * Service sale (jasa, dengan atau tanpa konsumsi bahan):
+     *   D 1101 Kas            = total
+     *   C 4103 Pendapatan Jasa = subtotal
+     *   C 2102 Hutang Pajak    = tax
+     *   D 5102 HPP Klinik      = cogs bahan (0 untuk service murni)
+     *   C 1201 Persediaan      = cogs bahan
+     */
+    public function postServiceSale(
+        string $ref,
+        ?int $refId,
+        float $total,
+        float $subtotal,
+        float $tax,
+        float $cogsMaterials,
+    ): Journal {
+        $lines = [
+            ['1101', $total, 0.0],
+            ['4103', 0.0, $subtotal],
+            ['2102', 0.0, $tax],
+            ['5102', $cogsMaterials, 0.0],
+            ['1201', 0.0, $cogsMaterials],
+        ];
+
+        return $this->post(
+            description: "Tindakan jasa {$ref}",
+            refType: 'service_sale',
+            refId: $refId,
+            lines: $lines,
+        );
+    }
+
+    /**
      * Purchase / goods receipt:
      *   D 1201 Persediaan   = amount
      *   C 2101 Hutang Supplier = amount
