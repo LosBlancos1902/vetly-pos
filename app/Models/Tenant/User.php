@@ -17,6 +17,20 @@ class User extends BaseUser
 {
     protected $table = 'users';
 
+    /**
+     * Force the polymorphic morph type to the BASE class so spatie/permission's
+     * model_has_roles + model_has_permissions resolve uniformly across:
+     *   - seeders / tinker (which instantiate Tenant\User directly)
+     *   - request-time auth (config/auth.php points at App\Models\User)
+     *
+     * Without this, seeders persist model_type='App\Models\Tenant\User' but
+     * auth lookups query model_type='App\Models\User' → no roles → 403.
+     */
+    public function getMorphClass(): string
+    {
+        return BaseUser::class;
+    }
+
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
