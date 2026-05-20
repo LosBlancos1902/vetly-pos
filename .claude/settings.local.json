@@ -25,7 +25,8 @@
       "Bash(echo \"exit=$?\")",
       "Bash(./vendor/bin/pest --filter=\"CompoundService|ServiceBundleService|HppCalculator|UnitConverter\")",
       "Bash(git ls-remote *)",
-      "Bash(awk '{print $1}')"
+      "Bash(awk '{print $1}')",
+      "Bash(echo \"origin: $\\(git ls-remote origin main)"
     ]
   }
 }
