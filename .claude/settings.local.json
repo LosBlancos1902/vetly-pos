@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash([ -f \"$F\" ])",
+      "Read(//home/andri/projects/**)",
+      "Bash(rm -rf vetly-pos-tmp)",
+      "Bash(composer create-project *)",
+      "Bash(php vetly-pos-tmp/artisan --version)",
+      "Bash(composer require *)",
+      "Bash(php artisan *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\({dep:p.dependencies,dev:p.devDependencies},null,1\\)\\)\")",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npm i *)",
+      "Bash(./vendor/bin/pest tests/Unit/HppCalculatorTest.php)"
+    ]
+  }
+}
