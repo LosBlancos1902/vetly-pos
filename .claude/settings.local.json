@@ -30,7 +30,8 @@
       "Bash(./vendor/bin/pest tests/Tenant/POS/ --colors=never)",
       "Bash(./vendor/bin/pest --colors=never)",
       "Bash(git stash *)",
-      "Bash(./vendor/bin/pest tests/Tenant/ --colors=never)"
+      "Bash(./vendor/bin/pest tests/Tenant/ --colors=never)",
+      "Bash(mysql *)"
     ]
   }
 }

@@ -4,7 +4,10 @@ namespace Tests;
 
 use App\Models\Tenant as TenantModel;
 use Database\Seeders\DemoSeeder;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Base test case that initializes tenancy against a dedicated `test` tenant
@@ -13,16 +16,16 @@ use Illuminate\Support\Facades\Auth;
  * against the developer-facing demo tenant. Use `demo` for manual UI testing
  * only; `test` is the disposable target for pest.
  *
+ * Central DB at test time is `vetly_pos_central_testing` (overridden in
+ * phpunit.xml) — completely separate from the local `vetly_pos_central`,
+ * so Feature tests' RefreshDatabase cannot wipe the demo tenant mapping.
+ * Tenant DBs (vetly_pos_tenant_*) survive across runs and are re-attached
+ * to the freshly-migrated central testing DB on each suite invocation.
+ *
  * We intentionally do NOT wrap each test in a DB transaction — the
  * concurrency tests rely on real committed state across connections, and a
  * surrounding RefreshDatabase / DatabaseTransactions trait would defeat that.
  * Tests are responsible for resetting whatever data they touch.
- *
- * The `test` tenant is auto-provisioned on first invocation: TenantModel::create
- * fires CreateDatabase + MigrateDatabase + SeedDatabase (baseline = units, COA,
- * roles); DemoSeeder is then run inside the tenant context to lay down the
- * demo products / recipes / bundles the test helpers expect (RAW-AMOX,
- * CPD-AMOXSIR, "Vaksin Rabies" bundle, etc.).
  */
 abstract class TenantTestCase extends TestCase
 {
@@ -33,6 +36,12 @@ abstract class TenantTestCase extends TestCase
         parent::setUp();
 
         Auth::logout();
+
+        // Central testing DB may be empty if Tenant tests run in isolation
+        // (e.g. --testsuite=Tenant). Migrate on demand; idempotent.
+        if (! Schema::hasTable('tenants')) {
+            Artisan::call('migrate', ['--force' => true]);
+        }
 
         $tenant = TenantModel::find(self::TEST_TENANT_ID);
         if (! $tenant) {
@@ -49,20 +58,56 @@ abstract class TenantTestCase extends TestCase
     }
 
     /**
-     * Create the test tenant with baseline + demo data. Runs once per machine
-     * (kept in MariaDB until manually dropped).
+     * Either fully create the test tenant (first run on this machine) or
+     * re-attach an orphaned tenant DB to the central mapping (every subsequent
+     * suite invocation, because Feature tests' RefreshDatabase wipes the
+     * central testing DB but the tenant DB persists).
+     *
+     * The re-attach path bypasses Tenant::create() so we don't fire the
+     * CreateDatabase listener that would throw TenantDatabaseAlreadyExistsException.
      */
     private function provisionTestTenant(): TenantModel
     {
+        $tenantDbName = config('tenancy.database.prefix').self::TEST_TENANT_ID.config('tenancy.database.suffix');
+        $domain = self::TEST_TENANT_ID.'.vetly-pos.test';
+
+        // SHOW DATABASES LIKE doesn't accept bound parameters in MariaDB;
+        // inline is safe because $tenantDbName is derived from a constant + config.
+        $dbAlreadyExists = ! empty(DB::select(
+            'SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?',
+            [$tenantDbName]
+        ));
+
+        if ($dbAlreadyExists) {
+            $now = now();
+
+            DB::table('tenants')->insert([
+                'id' => self::TEST_TENANT_ID,
+                'data' => json_encode([
+                    'name' => self::TEST_TENANT_ID,
+                    'tenancy_db_name' => $tenantDbName,
+                ]),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            DB::table('domains')->insert([
+                'domain' => $domain,
+                'tenant_id' => self::TEST_TENANT_ID,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            return TenantModel::find(self::TEST_TENANT_ID);
+        }
+
+        // Fresh path: CreateDatabase + MigrateDatabase + SeedDatabase fire via events.
         $tenant = TenantModel::create([
             'id' => self::TEST_TENANT_ID,
             'name' => self::TEST_TENANT_ID,
         ]);
 
-        // Domain isn't strictly needed for pest (we never hit it via HTTP),
-        // but stancl/tenancy expects every tenant to have at least one for
-        // Inertia route generation if any feature test ever exercises it.
-        $tenant->domains()->create(['domain' => self::TEST_TENANT_ID.'.vetly-pos.test']);
+        $tenant->domains()->create(['domain' => $domain]);
 
         $tenant->run(function () {
             (new DemoSeeder)->run();
