@@ -46,12 +46,19 @@ butuh `sudo` / akses socket root):
 ```sql
 -- jalankan: sudo mysql
 CREATE USER IF NOT EXISTS 'vetly_pos'@'localhost' IDENTIFIED BY '<password-acak>';
-CREATE DATABASE IF NOT EXISTS vetly_pos_central CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-GRANT ALL PRIVILEGES ON `vetly_pos_central`.*    TO 'vetly_pos'@'localhost';
-GRANT ALL PRIVILEGES ON `vetly_pos_tenant_%`.*   TO 'vetly_pos'@'localhost';
-GRANT CREATE, DROP, REFERENCES ON *.*            TO 'vetly_pos'@'localhost';
+CREATE DATABASE IF NOT EXISTS vetly_pos_central         CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS vetly_pos_central_testing CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON `vetly_pos_central`.*         TO 'vetly_pos'@'localhost';
+GRANT ALL PRIVILEGES ON `vetly_pos_central_testing`.* TO 'vetly_pos'@'localhost';
+GRANT ALL PRIVILEGES ON `vetly_pos_tenant_%`.*        TO 'vetly_pos'@'localhost';
+GRANT CREATE, DROP, REFERENCES ON *.*                 TO 'vetly_pos'@'localhost';
 FLUSH PRIVILEGES;
 ```
+
+`vetly_pos_central_testing` adalah DB **terpisah** yang dipakai pest sebagai
+central. Mutlak harus ada sebelum `./vendor/bin/pest` jalan, supaya
+`RefreshDatabase` (Feature suite) tidak menyentuh `vetly_pos_central` lokal.
+Detail di [Testing](#testing).
 
 Generate password dengan `openssl rand -base64 24`, simpan di file **di luar repo**
 `~/.vetly-pos-credentials` (`chmod 600`), lalu isi `DB_*` di `.env`
@@ -112,9 +119,31 @@ Cetak struk: API mengembalikan `escpos_payload_58mm`/`_80mm` (base64) →
 
 ```bash
 ./vendor/bin/pest tests/Unit          # unit (HppCalculator dll) — hijau
+./vendor/bin/pest tests/Tenant        # tenant suite (POS, Inventory, Clinic) — hijau
+./vendor/bin/pest                     # full suite (lihat catatan Breeze di bawah)
 ```
 
-> Catatan: test Feature/Auth bawaan Breeze mengasumsikan rute auth di domain central.
+### Boundary central DB saat test
+
+`phpunit.xml` meng-override `DB_DATABASE=vetly_pos_central_testing` (dengan
+`force="true"`). Ini wajib: Pest Feature suite memakai `RefreshDatabase` yang
+memanggil `migrate:fresh` di koneksi default — tanpa override, `migrate:fresh`
+akan menghapus mapping tenant di `vetly_pos_central` lokal dan men-yatim-kan
+DB tenant demo (`vetly_pos_tenant_demo`). Boundary ini memisahkan central
+runtime dari central test sepenuhnya.
+
+DB tenant **tidak** diisolasi — `vetly_pos_tenant_test` persist lintas pest
+run dan di-re-attach oleh `TenantTestCase::provisionTestTenant()` setiap kali
+suite dimulai (lihat doc-block di file). Untuk reset bersih:
+
+```bash
+mysql -u vetly_pos -p"$DB_PASSWORD" -e "DROP DATABASE vetly_pos_tenant_test;"
+# pest run berikutnya akan provision ulang via Tenant::create()
+```
+
+### Catatan Breeze
+
+> Test Feature/Auth bawaan Breeze mengasumsikan rute auth di domain central.
 > Karena auth dipindah ke konteks tenant, test tersebut perlu disesuaikan
 > (mock domain tenant) — belum dikerjakan.
 
