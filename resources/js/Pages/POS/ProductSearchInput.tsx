@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Input } from '@/Components/ui/input';
@@ -46,6 +46,17 @@ export default function ProductSearchInput({ warehouseId, onSelectProduct, onSca
 
     const term = q.trim();
 
+    // One search call, shared by the live dropdown and the Enter handler.
+    const runSearch = useCallback(
+        (searchTerm: string): Promise<SearchProduct[]> =>
+            axios
+                .get(route('pos.search'), {
+                    params: { q: searchTerm, warehouse_id: warehouseId },
+                })
+                .then((res) => res.data.results ?? []),
+        [warehouseId],
+    );
+
     // Debounced live search — fires while typing, no Enter required.
     useEffect(() => {
         if (term.length < 2) {
@@ -57,10 +68,8 @@ export default function ProductSearchInput({ warehouseId, onSelectProduct, onSca
         const t = setTimeout(async () => {
             setLoading(true);
             try {
-                const { data } = await axios.get(route('pos.search'), {
-                    params: { q: term, warehouse_id: warehouseId },
-                });
-                setResults(data.results ?? []);
+                const hits = await runSearch(term);
+                setResults(hits);
                 setHighlight(-1);
                 setOpen(true);
             } catch (err) {
@@ -72,7 +81,7 @@ export default function ProductSearchInput({ warehouseId, onSelectProduct, onSca
             }
         }, 250);
         return () => clearTimeout(t);
-    }, [term, warehouseId]);
+    }, [term, runSearch]);
 
     // Close the dropdown when clicking outside the component.
     useEffect(() => {
@@ -106,10 +115,45 @@ export default function ProductSearchInput({ warehouseId, onSelectProduct, onSca
         inputRef.current?.focus();
     }
 
-    async function scan() {
+    // Enter with no row highlighted. Priority:
+    //   1. exact barcode/SKU match  -> add (physical scanner path)
+    //   2. else, if the search has hits -> add the top one
+    //   3. else -> "not found"
+    async function submit() {
         if (!term) return;
+
         const result = await onScanSubmit(term);
-        if (result === 'added') reset();
+        if (result === 'added') {
+            reset();
+            inputRef.current?.focus();
+            return;
+        }
+        if (result === 'error') {
+            inputRef.current?.focus();
+            return;
+        }
+
+        // result === 'notfound' — fall through to the live-search hits.
+        // Search now if the debounce hasn't landed yet (fast type + Enter).
+        let hits = results;
+        if (hits.length === 0) {
+            try {
+                hits = await runSearch(term);
+                setResults(hits);
+                setOpen(true);
+            } catch (err) {
+                console.error('Gagal mencari produk', err);
+                toast.error('Gagal mencari produk');
+                inputRef.current?.focus();
+                return;
+            }
+        }
+        if (hits.length > 0) {
+            choose(hits[0]);
+            return;
+        }
+
+        toast.error('Produk tidak ditemukan');
         inputRef.current?.focus();
     }
 
@@ -129,7 +173,7 @@ export default function ProductSearchInput({ warehouseId, onSelectProduct, onSca
             if (open && highlight >= 0 && results[highlight]) {
                 choose(results[highlight]);
             } else {
-                void scan();
+                void submit();
             }
         } else if (e.key === 'Escape') {
             setOpen(false);

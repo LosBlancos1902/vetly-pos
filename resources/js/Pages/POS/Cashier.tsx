@@ -90,15 +90,6 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
         }
     }
 
-    // Enter / physical scanner: try the raw input as an exact barcode|SKU.
-    async function submitBarcode(raw: string): Promise<'added' | 'notfound' | 'error'> {
-        const result = await lookupAndAdd(raw);
-        if (result === 'notfound') {
-            toast.error('Produk tidak ditemukan — pilih dari daftar.');
-        }
-        return result;
-    }
-
     function setQty(idx: number, qty: number) {
         setCart((c) => c.map((l, i) => (i === idx ? { ...l, qty: Math.max(0.0001, qty) } : l)));
     }
@@ -128,7 +119,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                         <ProductSearchInput
                             warehouseId={warehouseId}
                             onSelectProduct={addSearchResult}
-                            onScanSubmit={submitBarcode}
+                            onScanSubmit={lookupAndAdd}
                         />
                     </div>
 
