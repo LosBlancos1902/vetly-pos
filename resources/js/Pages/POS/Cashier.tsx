@@ -10,7 +10,7 @@ import { Table } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
 import { rupiah } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
-import ProductPicker from './ProductPicker';
+import ProductPicker, { type PickerProduct } from './ProductPicker';
 
 interface CartLine {
     product_id: number;
@@ -35,11 +35,12 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
     const [barcode, setBarcode] = useState('');
     const [payOpen, setPayOpen] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
+    const [pickerQuery, setPickerQuery] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
     const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
 
-    async function lookupAndAdd(query: string) {
+    async function lookupAndAdd(query: string): Promise<'added' | 'notfound' | 'error'> {
         try {
             const { data } = await axios.get(
                 route('pos.scan', { barcode: query }),
@@ -47,10 +48,10 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
             );
             if (!data.stock.allowed) {
                 toast.error(data.stock.message);
-                return;
+                return 'error';
             }
             if (data.stock.requires_confirmation) {
-                if (!confirm(data.stock.message + '\nLanjutkan dengan override?')) return;
+                if (!confirm(data.stock.message + '\nLanjutkan dengan override?')) return 'error';
             }
             const p = data.product;
             setCart((c) => {
@@ -72,9 +73,13 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                     },
                 ];
             });
+            return 'added';
         } catch (err: unknown) {
             const status = axios.isAxiosError(err) ? err.response?.status : undefined;
-            toast.error(status === 404 ? 'Produk tidak ditemukan' : 'Gagal scan produk');
+            if (status === 404) return 'notfound';
+            console.error('Gagal scan produk', err);
+            toast.error('Gagal scan produk');
+            return 'error';
         }
     }
 
@@ -82,9 +87,24 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
         e.preventDefault();
         const q = barcode.trim();
         if (!q) return;
-        await lookupAndAdd(q);
+        const result = await lookupAndAdd(q);
         setBarcode('');
+        if (result === 'notfound') {
+            // Not a known barcode/SKU — fall back to name search via the picker.
+            setPickerQuery(q);
+            setPickerOpen(true);
+            return;
+        }
         inputRef.current?.focus();
+    }
+
+    async function handlePick(p: PickerProduct) {
+        // Picker results carry a real barcode/SKU; scan resolves it and runs
+        // the stock guard. A 404 here would be a data race, not a typo.
+        const result = await lookupAndAdd(p.barcode ?? p.sku);
+        if (result === 'notfound') {
+            toast.error('Produk tidak ditemukan');
+        }
     }
 
     function setQty(idx: number, qty: number) {
@@ -121,7 +141,14 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                             placeholder="Scan / ketik barcode lalu Enter"
                         />
                         <Button type="submit">Tambah</Button>
-                        <Button type="button" variant="secondary" onClick={() => setPickerOpen(true)}>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => {
+                                setPickerQuery('');
+                                setPickerOpen(true);
+                            }}
+                        >
                             Cari Produk
                         </Button>
                     </form>
@@ -210,8 +237,9 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
             <ProductPicker
                 open={pickerOpen}
                 warehouseId={warehouseId}
+                initialQuery={pickerQuery}
                 onClose={() => setPickerOpen(false)}
-                onPick={(p) => lookupAndAdd(p.sku)}
+                onPick={handlePick}
             />
 
             <PaymentDialog

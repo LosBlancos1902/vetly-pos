@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
 import { Input } from '@/Components/ui/input';
 import { Badge } from '@/Components/ui/badge';
@@ -20,6 +21,8 @@ export interface PickerProduct {
 interface Props {
     open: boolean;
     warehouseId: number;
+    /** Pre-fill the search box when the picker opens (e.g. barcode-field fallback). */
+    initialQuery?: string;
     onClose: () => void;
     onPick: (p: PickerProduct) => void;
 }
@@ -31,7 +34,7 @@ const TYPE_LABEL: Record<string, { label: string; variant: 'default' | 'info' | 
     service_with_consumption: { label: 'JASA', variant: 'info' },
 };
 
-export default function ProductPicker({ open, warehouseId, onClose, onPick }: Props) {
+export default function ProductPicker({ open, warehouseId, initialQuery = '', onClose, onPick }: Props) {
     const [q, setQ] = useState('');
     const [results, setResults] = useState<PickerProduct[]>([]);
     const [loading, setLoading] = useState(false);
@@ -43,9 +46,10 @@ export default function ProductPicker({ open, warehouseId, onClose, onPick }: Pr
             setResults([]);
             return;
         }
+        setQ(initialQuery);
         // autoFocus on open
         setTimeout(() => inputRef.current?.focus(), 50);
-    }, [open]);
+    }, [open, initialQuery]);
 
     useEffect(() => {
         if (!open) return;
@@ -61,7 +65,9 @@ export default function ProductPicker({ open, warehouseId, onClose, onPick }: Pr
                     params: { q: term, warehouse_id: warehouseId },
                 });
                 setResults(data.results ?? []);
-            } catch {
+            } catch (err) {
+                console.error('Gagal mencari produk', err);
+                toast.error('Gagal mencari produk');
                 setResults([]);
             } finally {
                 setLoading(false);
