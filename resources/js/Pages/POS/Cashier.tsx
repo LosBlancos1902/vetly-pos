@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
@@ -10,7 +10,7 @@ import { Table } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
 import { rupiah } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
-import ProductPicker, { type PickerProduct } from './ProductPicker';
+import ProductSearchInput, { type SearchProduct } from './ProductSearchInput';
 
 interface CartLine {
     product_id: number;
@@ -32,14 +32,12 @@ interface Warehouse {
 export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
     const [warehouseId, setWarehouseId] = useState<number>(warehouses[0]?.id ?? 0);
     const [cart, setCart] = useState<CartLine[]>([]);
-    const [barcode, setBarcode] = useState('');
     const [payOpen, setPayOpen] = useState(false);
-    const [pickerOpen, setPickerOpen] = useState(false);
-    const [pickerQuery, setPickerQuery] = useState('');
-    const inputRef = useRef<HTMLInputElement>(null);
 
     const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
 
+    // Resolve an identifier through the scan endpoint and add it to the cart.
+    // Routing every add through scan keeps StockGuard.canSell in the loop.
     async function lookupAndAdd(query: string): Promise<'added' | 'notfound' | 'error'> {
         try {
             const { data } = await axios.get(
@@ -83,28 +81,22 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
         }
     }
 
-    async function onScan(e: React.FormEvent) {
-        e.preventDefault();
-        const q = barcode.trim();
-        if (!q) return;
-        const result = await lookupAndAdd(q);
-        setBarcode('');
-        if (result === 'notfound') {
-            // Not a known barcode/SKU — fall back to name search via the picker.
-            setPickerQuery(q);
-            setPickerOpen(true);
-            return;
-        }
-        inputRef.current?.focus();
-    }
-
-    async function handlePick(p: PickerProduct) {
-        // Picker results carry a real barcode/SKU; scan resolves it and runs
-        // the stock guard. A 404 here would be a data race, not a typo.
+    // A live-search result was picked. It carries a real barcode/SKU; a 404
+    // here means the row vanished between search and click.
+    async function addSearchResult(p: SearchProduct) {
         const result = await lookupAndAdd(p.barcode ?? p.sku);
         if (result === 'notfound') {
             toast.error('Produk tidak ditemukan');
         }
+    }
+
+    // Enter / physical scanner: try the raw input as an exact barcode|SKU.
+    async function submitBarcode(raw: string): Promise<'added' | 'notfound' | 'error'> {
+        const result = await lookupAndAdd(raw);
+        if (result === 'notfound') {
+            toast.error('Produk tidak ditemukan — pilih dari daftar.');
+        }
+        return result;
     }
 
     function setQty(idx: number, qty: number) {
@@ -121,7 +113,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
 
             <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-3">
                 <div className="lg:col-span-2">
-                    <form onSubmit={onScan} className="mb-4 flex gap-2">
+                    <div className="mb-4 flex gap-2">
                         <select
                             value={warehouseId}
                             onChange={(e) => setWarehouseId(Number(e.target.value))}
@@ -133,25 +125,12 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                 </option>
                             ))}
                         </select>
-                        <Input
-                            ref={inputRef}
-                            autoFocus
-                            value={barcode}
-                            onChange={(e) => setBarcode(e.target.value)}
-                            placeholder="Scan / ketik barcode lalu Enter"
+                        <ProductSearchInput
+                            warehouseId={warehouseId}
+                            onSelectProduct={addSearchResult}
+                            onScanSubmit={submitBarcode}
                         />
-                        <Button type="submit">Tambah</Button>
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => {
-                                setPickerQuery('');
-                                setPickerOpen(true);
-                            }}
-                        >
-                            Cari Produk
-                        </Button>
-                    </form>
+                    </div>
 
                     <Card>
                         <CardContent className="p-0">
@@ -233,14 +212,6 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                     </Card>
                 </div>
             </div>
-
-            <ProductPicker
-                open={pickerOpen}
-                warehouseId={warehouseId}
-                initialQuery={pickerQuery}
-                onClose={() => setPickerOpen(false)}
-                onPick={handlePick}
-            />
 
             <PaymentDialog
                 open={payOpen}
