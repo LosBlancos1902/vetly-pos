@@ -17,6 +17,7 @@ return [
      * Only relevant if you're using the domain or subdomain identification middleware.
      */
     'central_domains' => [
+        'pos.vetly.id',
         'vetly-pos.test',
         '127.0.0.1',
         'localhost',
@@ -196,6 +197,6 @@ return [
      */
     'seeder_parameters' => [
         '--class' => 'Database\\Seeders\\TenantDatabaseSeeder', // root tenant seeder
-        // '--force' => true, // This needs to be true to seed tenant databases in production
+        '--force' => true, // This needs to be true to seed tenant databases in production
     ],
 ];
