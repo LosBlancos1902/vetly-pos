@@ -23,6 +23,7 @@ use Database\Seeders\DefaultRolesSeeder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Illuminate\Http\UploadedFile;
@@ -433,6 +434,67 @@ it('cannot create SO if pending unfinished from prior SO (covered by concurrent 
     $req2->setUserResolver(fn () => Auth::user());
     $controller->store($req2); // should succeed
     expect(StockOpname::where('warehouse_id', $warehouse->id)->count())->toBeGreaterThan(1);
+});
+
+it('Excel download: generate xlsx valid dengan header + baris produk benar', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    $p2 = Product::where('sku', 'SKU-002')->firstOrFail();
+
+    setStock($p1->id, $warehouse->id, 50, 5000);
+    setStock($p2->id, $warehouse->id, 25, 2000);
+
+    $opname = makeOpnameDraft($warehouse->id);
+    // Sisakan cuma 2 produk biar test deterministik.
+    $opname->items()->whereNotIn('product_id', [$p1->id, $p2->id])->delete();
+
+    Auth::login(ownerForUpgrade());
+    $controller = app(StockOpnameController::class);
+    $req = Request::create('', 'GET');
+    $req->setUserResolver(fn () => Auth::user());
+
+    $response = $controller->downloadExcel($req, $opname);
+
+    // Response harus binary file download.
+    expect($response->headers->get('Content-Type'))
+        ->toContain('spreadsheetml');
+
+    $tmpPath = $response->getFile()->getRealPath();
+    expect(file_exists($tmpPath))->toBeTrue()
+        ->and(filesize($tmpPath))->toBeGreaterThan(0);
+
+    // Parse balik file yang baru di-generate — pastikan struktur valid + isi
+    // sesuai snapshot.
+    $loaded = IOFactory::load($tmpPath);
+    $sheet = $loaded->getActiveSheet();
+
+    // Header row.
+    expect((string) $sheet->getCell('A1')->getValue())->toBe('Kode')
+        ->and((string) $sheet->getCell('B1')->getValue())->toBe('Nama Produk')
+        ->and((string) $sheet->getCell('C1')->getValue())->toBe('Satuan')
+        ->and((string) $sheet->getCell('D1')->getValue())->toBe('Qty Sistem')
+        ->and((string) $sheet->getCell('E1')->getValue())->toBe('Qty Fisik');
+
+    // Header bold.
+    expect($sheet->getStyle('A1')->getFont()->getBold())->toBeTrue();
+
+    // Baris produk — map by SKU karena order opname_items mungkin nggak fix.
+    $rows = [];
+    foreach (range(2, $sheet->getHighestRow()) as $r) {
+        $sku = (string) $sheet->getCell('A'.$r)->getValue();
+        if ($sku === '') continue;
+        $rows[$sku] = [
+            'name' => (string) $sheet->getCell('B'.$r)->getValue(),
+            'qty_system' => (float) $sheet->getCell('D'.$r)->getValue(),
+            'qty_fisik' => $sheet->getCell('E'.$r)->getValue(),
+        ];
+    }
+
+    expect($rows)->toHaveCount(2);
+    expect($rows['SKU-001']['qty_system'])->toBe(50.0)
+        ->and($rows['SKU-001']['qty_fisik'])->toBeNull(); // kolom kosong
+    expect($rows['SKU-002']['qty_system'])->toBe(25.0)
+        ->and($rows['SKU-002']['qty_fisik'])->toBeNull();
 });
 
 it('Excel upload: parse xlsx → fill qty_physical via match SKU', function () {

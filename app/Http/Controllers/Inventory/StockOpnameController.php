@@ -387,24 +387,29 @@ class StockOpnameController extends Controller
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Opname');
 
+        // PhpSpreadsheet 5.x: setCellValueByColumnAndRow / getStyleByColumnAndRow
+        // dihapus. Pakai string coordinate (A1, B1, ...) — kolom kita cuma 5,
+        // jadi letter-hardcode paling readable.
         $headers = ['Kode', 'Nama Produk', 'Satuan', 'Qty Sistem', 'Qty Fisik'];
+        $columns = ['A', 'B', 'C', 'D', 'E'];
         foreach ($headers as $i => $h) {
-            $sheet->setCellValueByColumnAndRow($i + 1, 1, $h);
-            $sheet->getStyleByColumnAndRow($i + 1, 1)->getFont()->setBold(true);
+            $cell = $columns[$i].'1';
+            $sheet->setCellValue($cell, $h);
+            $sheet->getStyle($cell)->getFont()->setBold(true);
         }
 
         $row = 2;
         foreach ($opname->items as $it) {
-            $sheet->setCellValueByColumnAndRow(1, $row, $it->product->sku);
-            $sheet->setCellValueByColumnAndRow(2, $row, $it->product->name);
-            $sheet->setCellValueByColumnAndRow(3, $row, $it->product->baseUnit?->code ?? '');
-            $sheet->setCellValueByColumnAndRow(4, $row, (float) $it->qty_system);
-            // Kolom 5 (Qty Fisik) sengaja kosong.
+            $sheet->setCellValue('A'.$row, $it->product->sku);
+            $sheet->setCellValue('B'.$row, $it->product->name);
+            $sheet->setCellValue('C'.$row, $it->product->baseUnit?->code ?? '');
+            $sheet->setCellValue('D'.$row, (float) $it->qty_system);
+            // Kolom E (Qty Fisik) sengaja kosong.
             $row++;
         }
 
-        foreach (range(1, 5) as $col) {
-            $sheet->getColumnDimensionByColumn($col)->setAutoSize(true);
+        foreach ($columns as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
         $filename = "opname-{$opname->opname_no}.xlsx";
