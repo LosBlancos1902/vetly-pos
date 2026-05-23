@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\CompoundExecutionException;
 use App\Models\Tenant\Inventory;
+use App\Models\Tenant\PendingStockMovement;
 use App\Models\Tenant\ServiceBundle;
 use App\Models\Tenant\ServiceBundleItem;
 use App\Models\Tenant\Warehouse;
@@ -126,6 +127,15 @@ class ServiceBundleService
                 throw new CompoundExecutionException($shortages, 'Service bundle execution aborted: insufficient components.');
             }
 
+            // Optional frozen-context from caller (Cashier): map [product_id => opname_id].
+            // Untuk komponen yang frozen, defer ke pending_stock_movements; sisanya
+            // tetap consume via StockMovement::record seperti sebelumnya.
+            $frozenContext = $options['frozen_context'] ?? [];
+            $saleId = ($options['ref_type'] ?? null) === \App\Models\Tenant\Sale::class
+                ? ($options['ref_id'] ?? null)
+                : null;
+            $saleItemId = $options['sale_item_id'] ?? null;
+
             $movements = [];
             $costTotal = '0.0000';
             foreach ($bundle->items as $item) {
@@ -140,6 +150,23 @@ class ServiceBundleService
                     ->value('cost_avg') ?? '0'));
 
                 $costTotal = bcadd($costTotal, bcmul($baseQty, $costAvg, UnitConverter::SCALE), UnitConverter::SCALE);
+
+                // Komponen frozen + dipanggil dari konteks sale → defer ke pending.
+                if (isset($frozenContext[$component->id]) && $saleId !== null) {
+                    PendingStockMovement::create([
+                        'opname_id' => $frozenContext[$component->id],
+                        'sale_id' => $saleId,
+                        'sale_item_id' => $saleItemId,
+                        'product_id' => $component->id,
+                        'warehouse_id' => $warehouse->id,
+                        'type' => 'service_consumption',
+                        'qty_base' => $baseQty,
+                        'cost_per_base' => $costAvg,
+                        'notes' => $options['notes'] ?? "Tindakan {$bundle->name} (pending)",
+                        'created_at' => now(),
+                    ]);
+                    continue;
+                }
 
                 $mv = $this->stock->record(
                     product: $component,

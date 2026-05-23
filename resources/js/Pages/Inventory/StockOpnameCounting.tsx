@@ -86,6 +86,7 @@ export default function StockOpnameCounting({ opname }: Props) {
     const [cancelOpen, setCancelOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [uploading, setUploading] = useState(false);
 
     const filtered = useMemo(() => {
         const term = search.trim().toLowerCase();
@@ -173,6 +174,25 @@ export default function StockOpnameCounting({ opname }: Props) {
         );
     }
 
+    function uploadExcel(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploading(true);
+        const form = new FormData();
+        form.append('file', file);
+
+        router.post(route('inventory.opnames.excel.upload', opname.id), form, {
+            forceFormData: true,
+            onSuccess: () => toast.success('Excel diimport, refresh untuk lihat hasil.'),
+            onError: (errs) => toast.error((Object.values(errs)[0] as string) ?? 'Gagal upload'),
+            onFinish: () => {
+                setUploading(false);
+                e.target.value = ''; // reset agar file sama bisa upload ulang
+            },
+        });
+    }
+
     function doCancel(e: FormEvent) {
         e.preventDefault();
         router.post(
@@ -255,7 +275,23 @@ export default function StockOpnameCounting({ opname }: Props) {
                         className="w-72"
                     />
                     {!readOnly && (
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
+                            <a
+                                href={route('inventory.opnames.excel.download', opname.id)}
+                                className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"
+                            >
+                                Download Excel
+                            </a>
+                            <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent">
+                                {uploading ? 'Upload…' : 'Upload Excel'}
+                                <input
+                                    type="file"
+                                    accept=".xlsx,.xls"
+                                    className="hidden"
+                                    onChange={uploadExcel}
+                                    disabled={uploading || submitting}
+                                />
+                            </label>
                             <Button
                                 type="button"
                                 variant="outline"

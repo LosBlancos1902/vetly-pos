@@ -146,6 +146,8 @@ Route::middleware([
                 Route::put('/{opname}/items', [StockOpnameController::class, 'updateItems'])->name('update_items');
                 Route::post('/{opname}/complete', [StockOpnameController::class, 'complete'])->name('complete');
                 Route::post('/{opname}/cancel', [StockOpnameController::class, 'cancel'])->name('cancel');
+                Route::get('/{opname}/excel', [StockOpnameController::class, 'downloadExcel'])->name('excel.download');
+                Route::post('/{opname}/excel', [StockOpnameController::class, 'uploadExcel'])->name('excel.upload');
             });
 
         // Sales history

@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Inventory;
+use App\Models\Tenant\PendingStockMovement;
 use App\Models\Tenant\Product;
+use App\Models\Tenant\Sale;
 use App\Models\Tenant\StockOpname;
 use App\Models\Tenant\StockOpnameItem;
 use App\Models\Tenant\Warehouse;
@@ -15,6 +17,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Stock Opname (stock-take / opname fisik).
@@ -90,6 +96,14 @@ class StockOpnameController extends Controller
             'opname_date' => ['required', 'date'],
             'catatan' => ['nullable', 'string'],
         ]);
+
+        // Concurrency guard: max 1 SO aktif (draft/counting) per warehouse.
+        // Karena pending sale di-attach ke opname tertentu, overlap akan
+        // bikin ambiguity siapa yang ngangkat pending.
+        if ($activeId = StockOpname::activeOpnameIdFor((int) $data['warehouse_id'])) {
+            $active = StockOpname::find($activeId);
+            abort(422, "Sudah ada opname aktif di gudang ini: {$active->opname_no} ({$active->status}). Selesaikan atau batalkan dulu.");
+        }
 
         $opname = DB::transaction(function () use ($data, $request) {
             $opname = StockOpname::create([
@@ -262,12 +276,23 @@ class StockOpnameController extends Controller
                 }
             }
 
-            // Post jurnal aggregate per arah.
+            // Post jurnal aggregate per arah (phase a — adjustment fisik vs sistem).
             if ($totalPlus > 0) {
                 $this->journal->postAdjustment($opname->opname_no, $totalPlus, true);
             }
             if ($totalMinus > 0) {
                 $this->journal->postAdjustment($opname->opname_no, $totalMinus, false);
+            }
+
+            // ─── Phase (b): process pending stock movements untuk SO ini ──────
+            // Pending dibuat saat penjualan POS terhadap produk yang sedang
+            // di-snap (frozen) selama SO aktif. Sekarang setelah adjustment
+            // fisik di-apply, baru pending kita "lepas" → potong stok + post
+            // HPP penjualan deferred (D 5100 / C 1201) sebagai jurnal terpisah.
+            $deferredCogs = $this->applyPendingMovements($opname, $warehouse);
+
+            if ($deferredCogs > 0) {
+                $this->journal->postDeferredCogs($opname->opname_no, $deferredCogs, $opname->id);
             }
 
             $opname->update([
@@ -299,6 +324,175 @@ class StockOpnameController extends Controller
         ]);
 
         return back()->with('success', "Opname {$opname->opname_no} dibatalkan.");
+    }
+
+    /**
+     * Apply semua pending stock movements untuk SO ini:
+     *   - Record real stock_movements (potong inventory, update cost_avg)
+     *   - Link pending.applied_at + applied_movement_id
+     *   - Return total deferred COGS untuk jurnal aggregate.
+     */
+    private function applyPendingMovements(StockOpname $opname, Warehouse $warehouse): float
+    {
+        $pendings = PendingStockMovement::where('opname_id', $opname->id)
+            ->whereNull('applied_at')
+            ->get();
+
+        if ($pendings->isEmpty()) {
+            return 0.0;
+        }
+
+        $deferredCogs = 0.0;
+
+        foreach ($pendings as $pending) {
+            $product = Product::findOrFail($pending->product_id);
+            $qty = (float) $pending->qty_base;
+            $costPerBase = (float) $pending->cost_per_base;
+
+            $movement = $this->stock->record(
+                product: $product,
+                warehouse: $warehouse,
+                type: $pending->type, // 'sale' atau 'service_consumption'
+                qty: $qty,
+                cost: $costPerBase,
+                options: [
+                    'ref_type' => Sale::class,
+                    'ref_id' => (int) $pending->sale_id,
+                    'notes' => "Pending dari opname {$opname->opname_no} (sale #{$pending->sale_id})",
+                ],
+            );
+
+            $pending->update([
+                'applied_at' => now(),
+                'applied_movement_id' => $movement->id,
+            ]);
+
+            $deferredCogs += $qty * $costPerBase;
+        }
+
+        return round($deferredCogs, 2);
+    }
+
+    /**
+     * Download Excel template untuk SO: kode, nama, satuan, qty_system,
+     * qty_fisik (kolom kosong). Diisi offline oleh petugas.
+     */
+    public function downloadExcel(Request $request, StockOpname $opname): BinaryFileResponse
+    {
+        $this->authorize('inventory.opname');
+
+        $opname->load(['items.product:id,sku,name,base_unit_id', 'items.product.baseUnit:id,code']);
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Opname');
+
+        $headers = ['Kode', 'Nama Produk', 'Satuan', 'Qty Sistem', 'Qty Fisik'];
+        foreach ($headers as $i => $h) {
+            $sheet->setCellValueByColumnAndRow($i + 1, 1, $h);
+            $sheet->getStyleByColumnAndRow($i + 1, 1)->getFont()->setBold(true);
+        }
+
+        $row = 2;
+        foreach ($opname->items as $it) {
+            $sheet->setCellValueByColumnAndRow(1, $row, $it->product->sku);
+            $sheet->setCellValueByColumnAndRow(2, $row, $it->product->name);
+            $sheet->setCellValueByColumnAndRow(3, $row, $it->product->baseUnit?->code ?? '');
+            $sheet->setCellValueByColumnAndRow(4, $row, (float) $it->qty_system);
+            // Kolom 5 (Qty Fisik) sengaja kosong.
+            $row++;
+        }
+
+        foreach (range(1, 5) as $col) {
+            $sheet->getColumnDimensionByColumn($col)->setAutoSize(true);
+        }
+
+        $filename = "opname-{$opname->opname_no}.xlsx";
+        $tmpPath = tempnam(sys_get_temp_dir(), 'opname-').'.xlsx';
+
+        $writer = new Xlsx($spreadsheet);
+        $writer->save($tmpPath);
+
+        return response()->download($tmpPath, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Upload Excel hasil opname: parse rows, match by Kode (SKU),
+     * isi qty_physical + recompute qty_diff. Tidak meng-apply ke inventory
+     * (itu di-trigger via complete() terpisah).
+     */
+    public function uploadExcel(Request $request, StockOpname $opname): RedirectResponse
+    {
+        $this->authorize('inventory.opname');
+
+        if (! in_array($opname->status, [StockOpname::STATUS_DRAFT, StockOpname::STATUS_COUNTING], true)) {
+            abort(422, "Opname berstatus '{$opname->status}', tidak bisa diupload.");
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx,xls', 'max:5120'],
+        ]);
+
+        $file = $request->file('file');
+        $spreadsheet = IOFactory::load($file->getRealPath());
+        $sheet = $spreadsheet->getActiveSheet();
+        $rows = $sheet->toArray(null, true, true, false); // numeric indexes 0..
+
+        // Skip header.
+        if (count($rows) < 2) {
+            abort(422, 'File kosong atau header saja.');
+        }
+        array_shift($rows);
+
+        // Build map [sku => qty_physical].
+        $bySku = [];
+        $skipped = 0;
+        foreach ($rows as $r) {
+            $sku = isset($r[0]) ? trim((string) $r[0]) : '';
+            $qty = $r[4] ?? null;
+            if ($sku === '' || $qty === null || $qty === '') {
+                $skipped++;
+                continue;
+            }
+            if (! is_numeric($qty)) {
+                $skipped++;
+                continue;
+            }
+            $bySku[$sku] = (float) $qty;
+        }
+
+        if ($bySku === []) {
+            abort(422, 'Tidak ada baris dengan Qty Fisik yang valid.');
+        }
+
+        $opname->load('items.product:id,sku');
+        $updated = 0;
+        DB::transaction(function () use ($opname, $bySku, &$updated) {
+            foreach ($opname->items as $item) {
+                $sku = $item->product->sku ?? null;
+                if ($sku && array_key_exists($sku, $bySku)) {
+                    $physical = $bySku[$sku];
+                    $diff = (float) bcsub((string) $physical, (string) $item->qty_system, 4);
+                    $item->update([
+                        'qty_physical' => $physical,
+                        'qty_diff' => $diff,
+                    ]);
+                    $updated++;
+                }
+            }
+            if ($opname->status === StockOpname::STATUS_DRAFT) {
+                $opname->update(['status' => StockOpname::STATUS_COUNTING]);
+            }
+        });
+
+        $msg = "Excel diimport: {$updated} item terisi";
+        if ($skipped > 0) {
+            $msg .= " (skip {$skipped} baris kosong/invalid)";
+        }
+
+        return back()->with('success', $msg);
     }
 
     private function generateOpnameNo(): string

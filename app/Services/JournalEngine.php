@@ -194,6 +194,28 @@ class JournalEngine
     }
 
     /**
+     * Deferred COGS posting — dipanggil saat SO complete untuk meng-apply
+     * HPP penjualan pending yang ditahan selama SO aktif.
+     *   D 5100 HPP        = amount
+     *   C 1201 Persediaan = amount
+     *
+     * Mirror dari portion postSale (cogs lines), tapi sebagai jurnal terpisah
+     * dengan ref_type='deferred_cogs' supaya audit trail jelas.
+     */
+    public function postDeferredCogs(string $ref, float $amount, ?int $refId = null): Journal
+    {
+        return $this->post(
+            description: "HPP penjualan pending opname {$ref}",
+            refType: 'deferred_cogs',
+            refId: $refId,
+            lines: [
+                ['5100', $amount, 0.0],
+                ['1201', 0.0, $amount],
+            ],
+        );
+    }
+
+    /**
      * AP payment (pelunasan hutang supplier):
      *   D 2101 Hutang Supplier   = amount
      *   C cashCoaCode (e.g. 1101 Kas Besar, 1103 Bank BCA) = amount

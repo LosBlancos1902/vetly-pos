@@ -5,9 +5,11 @@ namespace App\Http\Controllers\POS;
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\AuditLog;
 use App\Models\Tenant\Inventory;
+use App\Models\Tenant\PendingStockMovement;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\Sale;
 use App\Models\Tenant\ServiceBundle;
+use App\Models\Tenant\StockOpname;
 use App\Models\Tenant\Warehouse;
 use App\Services\JournalEngine;
 use App\Services\ReceiptPrinter;
@@ -134,6 +136,11 @@ class CashierController extends Controller
         $warehouse = Warehouse::findOrFail($data['warehouse_id']);
 
         $sale = DB::transaction(function () use ($data, $request, $warehouse, $stock, $journal, $serviceBundles) {
+            // SO-frozen context: map [product_id => opname_id] untuk warehouse ini.
+            // Kalau kosong (no active SO) → semua flow normal, zero deviation.
+            // Kalau ada → produk yang lagi di-snap akan defer-ke-pending.
+            $frozenContext = StockOpname::frozenContextFor($warehouse->id);
+
             $subtotal = 0;
             $discount = 0;
             foreach ($data['items'] as $i) {
@@ -168,7 +175,7 @@ class CashierController extends Controller
                 $product = Product::findOrFail($i['product_id']);
                 $lineSubtotal = (float) $i['qty'] * (float) $i['price'] - (float) ($i['discount_amount'] ?? 0);
 
-                $sale->items()->create([
+                $saleItem = $sale->items()->create([
                     'product_id' => $product->id,
                     'unit_id' => $i['unit_id'],
                     'qty' => $i['qty'],
@@ -198,21 +205,42 @@ class CashierController extends Controller
                             options: [
                                 'ref_type' => Sale::class,
                                 'ref_id' => $sale->id,
+                                'sale_item_id' => $saleItem->id,
                                 'notes' => "Penjualan {$sale->invoice_no} (jasa: {$bundle->name})",
+                                'frozen_context' => $frozenContext,
                             ],
                         );
                         $serviceCogs += (float) $result['cost_total'];
                     }
                 } else {
+                    // Revenue side: ALWAYS akumulasi (customer bayar penuh termasuk frozen).
                     $retailSubtotal += (float) $i['qty'] * (float) $i['price'];
                     $retailDiscount += (float) ($i['discount_amount'] ?? 0);
-                    $retailCogs += (float) $product->cost_avg * (float) $i['qty'];
 
-                    $stock->record($product, $warehouse, 'sale', (float) $i['qty'], (float) $product->cost_avg, [
-                        'ref_type' => Sale::class,
-                        'ref_id' => $sale->id,
-                        'notes' => "Penjualan {$sale->invoice_no}",
-                    ]);
+                    // COGS + stock side: SKIP kalau frozen (ditahan ke pending).
+                    if (isset($frozenContext[$product->id])) {
+                        PendingStockMovement::create([
+                            'opname_id' => $frozenContext[$product->id],
+                            'sale_id' => $sale->id,
+                            'sale_item_id' => $saleItem->id,
+                            'product_id' => $product->id,
+                            'warehouse_id' => $warehouse->id,
+                            'type' => 'sale',
+                            'qty_base' => (float) $i['qty'],
+                            'cost_per_base' => (float) $product->cost_avg,
+                            'notes' => "Penjualan {$sale->invoice_no} (pending: SO aktif)",
+                            'created_at' => now(),
+                        ]);
+                    } else {
+                        // Path normal — TIDAK BERUBAH dari sebelum upgrade.
+                        $retailCogs += (float) $product->cost_avg * (float) $i['qty'];
+
+                        $stock->record($product, $warehouse, 'sale', (float) $i['qty'], (float) $product->cost_avg, [
+                            'ref_type' => Sale::class,
+                            'ref_id' => $sale->id,
+                            'notes' => "Penjualan {$sale->invoice_no}",
+                        ]);
+                    }
                 }
             }
 
@@ -225,20 +253,17 @@ class CashierController extends Controller
                 ]);
             }
 
-            // Single journal that captures both retail + service portions.
-            // (postSale only knows about retail accounts.)
-            if ($serviceSubtotal > 0) {
-                $journal->postSplitSale(
-                    sale: $sale->load('items'),
-                    retailSubtotal: $retailSubtotal,
-                    retailDiscount: $retailDiscount,
-                    retailCogs: $retailCogs,
-                    serviceSubtotal: $serviceSubtotal,
-                    serviceCogs: $serviceCogs,
-                );
-            } else {
-                $journal->postSale($sale->load('items'));
-            }
+            // SELALU pakai postSplitSale supaya retailCogs eksplisit dipassing
+            // (excluding deferred items kalau ada SO aktif). postSale auto-sum
+            // dari sale.items → bocor kalau ada deferred.
+            $journal->postSplitSale(
+                sale: $sale->load('items'),
+                retailSubtotal: $retailSubtotal,
+                retailDiscount: $retailDiscount,
+                retailCogs: $retailCogs,
+                serviceSubtotal: $serviceSubtotal,
+                serviceCogs: $serviceCogs,
+            );
 
             AuditLog::create([
                 'user_id' => $request->user()->id,
