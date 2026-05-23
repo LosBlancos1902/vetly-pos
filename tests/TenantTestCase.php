@@ -49,6 +49,14 @@ abstract class TenantTestCase extends TestCase
         }
 
         tenancy()->initialize($tenant);
+
+        // Tenant DB persist across runs (lihat docblock di atas), jadi schema
+        // bisa ketinggalan kalau ada migration tenant baru. Jalankan tenants:migrate
+        // tiap setUp — idempotent, Laravel skip migration yang sudah jalan.
+        Artisan::call('tenants:migrate', [
+            '--tenants' => [self::TEST_TENANT_ID],
+            '--force' => true,
+        ]);
     }
 
     protected function tearDown(): void
