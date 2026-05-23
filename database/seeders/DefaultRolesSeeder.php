@@ -27,6 +27,7 @@ class DefaultRolesSeeder extends Seeder
         'inventory.opname',
         // Purchasing
         'purchasing.manage',
+        'purchasing.supplier_manage',
         // Accounting
         'accounting.view',
         'accounting.journal.post',
@@ -54,7 +55,8 @@ class DefaultRolesSeeder extends Seeder
         'manager' => [
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
             'inventory.view', 'inventory.adjustment', 'inventory.transfer', 'inventory.opname',
-            'purchasing.manage', 'accounting.view', 'accounting.journal.post',
+            'purchasing.manage', 'purchasing.supplier_manage',
+            'accounting.view', 'accounting.journal.post',
             'master.manage', 'master.compounds', 'master.services',
             'pharmacy.compound',
             'reports.view', 'settings.users', 'settings.roles',

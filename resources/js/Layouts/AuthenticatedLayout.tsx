@@ -10,7 +10,9 @@ export default function Authenticated({
     header,
     children,
 }: PropsWithChildren<{ header?: ReactNode }>) {
-    const user = usePage().props.auth.user;
+    const { auth } = usePage().props;
+    const user = auth.user;
+    const can = (perm: string) => auth.permissions?.includes(perm) ?? false;
 
     const [showingNavigationDropdown, setShowingNavigationDropdown] =
         useState(false);
@@ -35,6 +37,14 @@ export default function Authenticated({
                                 >
                                     Dashboard
                                 </NavLink>
+                                {can('purchasing.supplier_manage') && (
+                                    <NavLink
+                                        href={route('master.suppliers.index')}
+                                        active={route().current('master.suppliers.*')}
+                                    >
+                                        Supplier
+                                    </NavLink>
+                                )}
                             </div>
                         </div>
 
@@ -139,6 +149,14 @@ export default function Authenticated({
                         >
                             Dashboard
                         </ResponsiveNavLink>
+                        {can('purchasing.supplier_manage') && (
+                            <ResponsiveNavLink
+                                href={route('master.suppliers.index')}
+                                active={route().current('master.suppliers.*')}
+                            >
+                                Supplier
+                            </ResponsiveNavLink>
+                        )}
                     </div>
 
                     <div className="border-t border-gray-200 pb-1 pt-4">
