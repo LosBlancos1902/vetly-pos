@@ -436,6 +436,49 @@ it('cannot create SO if pending unfinished from prior SO (covered by concurrent 
     expect(StockOpname::where('warehouse_id', $warehouse->id)->count())->toBeGreaterThan(1);
 });
 
+it('show() expose pendingSummary count + total_cogs akurat untuk dialog confirm', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p = Product::where('sku', 'SKU-001')->firstOrFail();
+    setStock($p->id, $warehouse->id, 100, 5000);
+
+    $opname = makeOpnameDraft($warehouse->id);
+
+    // Buat 3 sale tertahan: 2 dan 3 unit @ cost 5000 = 25000 HPP.
+    Auth::login(ownerForUpgrade());
+    doSale($warehouse, $p->id, 2, 10000); // pending 1
+    doSale($warehouse, $p->id, 3, 10000); // pending 2
+
+    // Hit show() endpoint via controller — Inertia::render dengan props pendingSummary.
+    $controller = app(StockOpnameController::class);
+    $req = Request::create('', 'GET');
+    $req->setUserResolver(fn () => Auth::user());
+    /** @var \Inertia\Response $response */
+    $response = $controller->show($req, $opname);
+
+    $props = $response->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+    expect($props['pendingSummary'])->toBeArray()
+        ->and($props['pendingSummary']['count'])->toBe(2)
+        ->and((float) $props['pendingSummary']['total_cogs'])->toBe(25000.0); // 2*5000 + 3*5000
+});
+
+it('show() pendingSummary nol kalau belum ada penjualan tertahan', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p = Product::where('sku', 'SKU-001')->firstOrFail();
+    setStock($p->id, $warehouse->id, 100, 5000);
+
+    $opname = makeOpnameDraft($warehouse->id);
+
+    Auth::login(ownerForUpgrade());
+    $controller = app(StockOpnameController::class);
+    $req = Request::create('', 'GET');
+    $req->setUserResolver(fn () => Auth::user());
+    $response = $controller->show($req, $opname);
+
+    $props = $response->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+    expect($props['pendingSummary']['count'])->toBe(0)
+        ->and((float) $props['pendingSummary']['total_cogs'])->toBe(0.0);
+});
+
 it('Excel download: generate xlsx valid dengan header + baris produk benar', function () {
     $warehouse = Warehouse::query()->firstOrFail();
     $p1 = Product::where('sku', 'SKU-001')->firstOrFail();

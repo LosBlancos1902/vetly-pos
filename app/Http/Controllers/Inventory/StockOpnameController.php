@@ -160,8 +160,20 @@ class StockOpnameController extends Controller
             'items.product.baseUnit:id,code,name',
         ]);
 
+        // Ringkasan pending penjualan yang akan diapply pas complete —
+        // dipakai confirm dialog di UI biar user paham impact sebelum klik.
+        $pendingAgg = PendingStockMovement::query()
+            ->where('opname_id', $opname->id)
+            ->whereNull('applied_at')
+            ->selectRaw('COUNT(*) as count, COALESCE(SUM(qty_base * cost_per_base), 0) as total_cogs')
+            ->first();
+
         return Inertia::render('Inventory/StockOpnameCounting', [
             'opname' => $opname,
+            'pendingSummary' => [
+                'count' => (int) ($pendingAgg->count ?? 0),
+                'total_cogs' => (float) ($pendingAgg->total_cogs ?? 0),
+            ],
         ]);
     }
 

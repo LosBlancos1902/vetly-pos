@@ -22,6 +22,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/Components/ui/dialog';
+import { rupiah } from '@/lib/utils';
 
 type Status = 'draft' | 'counting' | 'completed' | 'cancelled';
 
@@ -60,8 +61,14 @@ interface Opname {
     items: OpnameItem[];
 }
 
+interface PendingSummary {
+    count: number;
+    total_cogs: number;
+}
+
 interface Props {
     opname: Opname;
+    pendingSummary: PendingSummary;
 }
 
 const STATUS_LABEL: Record<Status, { label: string; variant: 'default' | 'info' | 'success' | 'destructive' | 'muted' }> = {
@@ -71,7 +78,7 @@ const STATUS_LABEL: Record<Status, { label: string; variant: 'default' | 'info' 
     cancelled: { label: 'Batal', variant: 'destructive' },
 };
 
-export default function StockOpnameCounting({ opname }: Props) {
+export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
     const readOnly = opname.status === 'completed' || opname.status === 'cancelled';
     const [rows, setRows] = useState(() =>
         opname.items.map((it) => ({
@@ -85,6 +92,7 @@ export default function StockOpnameCounting({ opname }: Props) {
     const [search, setSearch] = useState('');
     const [cancelOpen, setCancelOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
+    const [completeOpen, setCompleteOpen] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [uploading, setUploading] = useState(false);
 
@@ -139,10 +147,12 @@ export default function StockOpnameCounting({ opname }: Props) {
         );
     }
 
-    function complete() {
-        if (!confirm('Yakin selesaikan opname? Selisih akan diaplikasikan ke stok + jurnal akan dipost.')) return;
+    function openCompleteConfirm() {
+        setCompleteOpen(true);
+    }
 
-        // Save dulu, lalu complete.
+    function confirmComplete() {
+        // Save progress dulu, lalu complete dalam satu rangkaian.
         setSubmitting(true);
         router.put(
             route('inventory.opnames.update_items', opname.id),
@@ -159,7 +169,10 @@ export default function StockOpnameCounting({ opname }: Props) {
                         route('inventory.opnames.complete', opname.id),
                         {},
                         {
-                            onSuccess: () => toast.success('Opname selesai'),
+                            onSuccess: () => {
+                                toast.success('Opname selesai');
+                                setCompleteOpen(false);
+                            },
                             onError: (errs) =>
                                 toast.error((Object.values(errs)[0] as string) ?? 'Gagal complete'),
                             onFinish: () => setSubmitting(false),
@@ -307,7 +320,7 @@ export default function StockOpnameCounting({ opname }: Props) {
                             >
                                 Batalkan
                             </Button>
-                            <Button type="button" onClick={complete} disabled={submitting}>
+                            <Button type="button" onClick={openCompleteConfirm} disabled={submitting}>
                                 Selesaikan
                             </Button>
                         </div>
@@ -388,6 +401,97 @@ export default function StockOpnameCounting({ opname }: Props) {
                     </CardContent>
                 </Card>
             </div>
+
+            <Dialog open={completeOpen} onOpenChange={(o) => !submitting && setCompleteOpen(o)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Selesaikan Opname {opname.opname_no}?</DialogTitle>
+                    </DialogHeader>
+                    {(() => {
+                        const diffItems = rows.filter((r) => {
+                            const d = diffFor(r);
+                            return d !== null && d !== 0;
+                        });
+                        const totalAbsDiff = diffItems.reduce(
+                            (sum, r) => sum + Math.abs(diffFor(r) ?? 0),
+                            0,
+                        );
+                        const hasDiff = diffItems.length > 0;
+                        const hasPending = pendingSummary.count > 0;
+                        const isSimple = !hasDiff && !hasPending;
+
+                        return (
+                            <div className="space-y-4 text-sm">
+                                {isSimple ? (
+                                    <p>
+                                        Tidak ada selisih dan tidak ada penjualan tertahan.
+                                        Lanjutkan menyelesaikan opname?
+                                    </p>
+                                ) : (
+                                    <>
+                                        <div className="rounded-md border bg-muted/50 p-3 space-y-2">
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Item dengan selisih</span>
+                                                <span className="font-semibold">
+                                                    {hasDiff
+                                                        ? `${diffItems.length} item · total ${totalAbsDiff.toFixed(2)} qty`
+                                                        : 'tidak ada'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Penjualan tertahan</span>
+                                                <span className="font-semibold">
+                                                    {hasPending
+                                                        ? `${pendingSummary.count} transaksi · HPP ${rupiah(pendingSummary.total_cogs)}`
+                                                        : 'tidak ada'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="text-muted-foreground">
+                                            <p className="mb-1 font-medium text-foreground">
+                                                Menyelesaikan opname ini akan:
+                                            </p>
+                                            <ol className="list-decimal space-y-1 pl-5">
+                                                {hasDiff && (
+                                                    <li>
+                                                        Menyesuaikan stok ke hasil fisik
+                                                        {' '}({diffItems.length} item) + post jurnal selisih
+                                                    </li>
+                                                )}
+                                                {hasPending && (
+                                                    <li>
+                                                        Memproses {pendingSummary.count} penjualan tertahan
+                                                        {' '}→ potong stok + post jurnal HPP{' '}
+                                                        ({rupiah(pendingSummary.total_cogs)})
+                                                    </li>
+                                                )}
+                                            </ol>
+                                        </div>
+
+                                        <p className="text-xs text-muted-foreground">
+                                            Aksi ini tidak bisa dibatalkan setelah dikonfirmasi.
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })()}
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => setCompleteOpen(false)}
+                            disabled={submitting}
+                        >
+                            Batal
+                        </Button>
+                        <Button type="button" onClick={confirmComplete} disabled={submitting}>
+                            {submitting ? 'Memproses…' : 'Konfirmasi'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
                 <DialogContent>
