@@ -11,6 +11,7 @@ use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
 use App\Http\Controllers\Master\ServiceController;
 use App\Http\Controllers\Master\SupplierController;
+use App\Http\Controllers\Purchasing\PurchaseRequestController;
 use App\Http\Controllers\Pharmacy\CompoundController as PharmacyCompoundController;
 use App\Http\Controllers\POS\CashierController;
 use App\Http\Controllers\POS\ShiftController;
@@ -73,6 +74,20 @@ Route::middleware([
         Route::resource('master/suppliers', SupplierController::class)
             ->names('master.suppliers')->only(['index', 'store', 'update', 'destroy'])
             ->middleware('can:purchasing.supplier_manage');
+
+        // Purchasing — Purchase Requests
+        Route::prefix('purchasing')->name('purchasing.')->group(function () {
+            Route::get('/requests', [PurchaseRequestController::class, 'index'])
+                ->name('requests.index');
+            Route::post('/requests', [PurchaseRequestController::class, 'store'])
+                ->middleware('can:purchasing.pr_create')->name('requests.store');
+            Route::post('/requests/{purchaseRequest}/submit', [PurchaseRequestController::class, 'submit'])
+                ->middleware('can:purchasing.pr_create')->name('requests.submit');
+            Route::post('/requests/{purchaseRequest}/approve', [PurchaseRequestController::class, 'approve'])
+                ->middleware('can:purchasing.pr_approve')->name('requests.approve');
+            Route::post('/requests/{purchaseRequest}/reject', [PurchaseRequestController::class, 'reject'])
+                ->middleware('can:purchasing.pr_approve')->name('requests.reject');
+        });
 
         // Pharmacy — compound execution (racikan)
         Route::middleware('can:pharmacy.compound')->prefix('pharmacy')->name('pharmacy.')->group(function () {

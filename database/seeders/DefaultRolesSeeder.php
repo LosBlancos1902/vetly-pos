@@ -28,6 +28,8 @@ class DefaultRolesSeeder extends Seeder
         // Purchasing
         'purchasing.manage',
         'purchasing.supplier_manage',
+        'purchasing.pr_create',
+        'purchasing.pr_approve',
         // Accounting
         'accounting.view',
         'accounting.journal.post',
@@ -56,6 +58,7 @@ class DefaultRolesSeeder extends Seeder
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
             'inventory.view', 'inventory.adjustment', 'inventory.transfer', 'inventory.opname',
             'purchasing.manage', 'purchasing.supplier_manage',
+            'purchasing.pr_create', 'purchasing.pr_approve',
             'accounting.view', 'accounting.journal.post',
             'master.manage', 'master.compounds', 'master.services',
             'pharmacy.compound',
@@ -70,13 +73,16 @@ class DefaultRolesSeeder extends Seeder
             'master.compounds', 'master.services',
             'pharmacy.compound',
             'inventory.view',
+            'purchasing.pr_create',
         ],
         'supervisor' => [
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
             'inventory.view', 'inventory.adjustment', 'reports.view',
+            'purchasing.pr_create',
         ],
         'cashier' => [
             'pos.access', 'pos.sell', 'pos.shift.manage',
+            'purchasing.pr_create',
         ],
         'super_user' => [
             'pos.access', 'pos.sell', 'pos.sell.stock_minus', 'pos.sale.void',

@@ -8,7 +8,10 @@ interface NavItem {
     label: string;
     href: string;
     routeMatch: string;
+    /** Single required permission. */
     permission?: string;
+    /** Any of these permissions. Mutually exclusive with `permission`. */
+    anyPermission?: string[];
 }
 
 interface NavSection {
@@ -74,6 +77,17 @@ export default function Authenticated({
             ],
         },
         {
+            label: 'Purchasing',
+            items: [
+                {
+                    label: 'Purchase Request',
+                    href: route('purchasing.requests.index'),
+                    routeMatch: 'purchasing.requests.*',
+                    anyPermission: ['purchasing.pr_create', 'purchasing.pr_approve'],
+                },
+            ],
+        },
+        {
             items: [
                 {
                     label: 'Inventori',
@@ -123,7 +137,11 @@ export default function Authenticated({
     const visibleSections = sections
         .map((s) => ({
             ...s,
-            items: s.items.filter((i) => !i.permission || can(i.permission)),
+            items: s.items.filter((i) => {
+                if (i.anyPermission) return i.anyPermission.some(can);
+                if (i.permission) return can(i.permission);
+                return true;
+            }),
         }))
         .filter((s) => s.items.length > 0);
 
