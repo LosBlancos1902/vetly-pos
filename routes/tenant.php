@@ -11,6 +11,7 @@ use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
 use App\Http\Controllers\Master\ServiceController;
 use App\Http\Controllers\Master\SupplierController;
+use App\Http\Controllers\Purchasing\AccountsPayableController;
 use App\Http\Controllers\Purchasing\GoodsReceiptController;
 use App\Http\Controllers\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Purchasing\PurchaseRequestController;
@@ -113,6 +114,12 @@ Route::middleware([
                 ->middleware('can:purchasing.receive')->name('receipts.create');
             Route::post('/receipts', [GoodsReceiptController::class, 'store'])
                 ->middleware('can:purchasing.receive')->name('receipts.store');
+
+            // Accounts Payable (hutang supplier)
+            Route::get('/payables', [AccountsPayableController::class, 'index'])
+                ->middleware('can:purchasing.ap_view')->name('payables.index');
+            Route::post('/payables/{accountsPayable}/pay', [AccountsPayableController::class, 'pay'])
+                ->middleware('can:purchasing.ap_pay')->name('payables.pay');
         });
 
         // Pharmacy — compound execution (racikan)

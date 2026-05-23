@@ -97,6 +97,12 @@ export default function Authenticated({
                     routeMatch: 'purchasing.receipts.*',
                     permission: 'purchasing.receive',
                 },
+                {
+                    label: 'Hutang Supplier',
+                    href: route('purchasing.payables.index'),
+                    routeMatch: 'purchasing.payables.*',
+                    permission: 'purchasing.ap_view',
+                },
             ],
         },
         {

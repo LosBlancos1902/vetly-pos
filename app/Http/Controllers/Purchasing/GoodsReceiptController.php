@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Purchasing;
 
 use App\Http\Controllers\Controller;
+use App\Models\Tenant\AccountsPayable;
 use App\Models\Tenant\GoodsReceipt;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\PurchaseOrder;
@@ -206,6 +207,24 @@ class GoodsReceiptController extends Controller
             );
             $gr->update(['journal_id' => $journal->id]);
 
+            // Auto-create AP record kalau payment_type=tempo.
+            // due_date = received_at + payment_term_days.
+            if ($po->payment_type === PurchaseOrder::PAYMENT_TEMPO) {
+                AccountsPayable::create([
+                    'ap_no' => $this->generateApNo(),
+                    'supplier_id' => $po->supplier_id,
+                    'gr_id' => $gr->id,
+                    'po_id' => $po->id,
+                    'amount' => $runningTotal,
+                    'paid_amount' => 0,
+                    'due_date' => \Illuminate\Support\Carbon::parse($gr->received_at)
+                        ->addDays((int) $po->payment_term_days)
+                        ->toDateString(),
+                    'status' => AccountsPayable::STATUS_OPEN,
+                    'journal_id' => $journal->id,
+                ]);
+            }
+
             // Cek apakah semua PO items fully received → flip PO.status.
             $po->refresh();
             $allReceived = $po->items()->get()->every(
@@ -268,6 +287,19 @@ class GoodsReceiptController extends Controller
             ->lockForUpdate()
             ->orderBy('id', 'desc')
             ->value('gr_no');
+
+        $next = $lastSeq ? ((int) substr($lastSeq, -4)) + 1 : 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+    }
+
+    private function generateApNo(): string
+    {
+        $prefix = 'AP-'.now()->format('Ym').'-';
+        $lastSeq = AccountsPayable::where('ap_no', 'like', $prefix.'%')
+            ->lockForUpdate()
+            ->orderBy('id', 'desc')
+            ->value('ap_no');
 
         $next = $lastSeq ? ((int) substr($lastSeq, -4)) + 1 : 1;
 

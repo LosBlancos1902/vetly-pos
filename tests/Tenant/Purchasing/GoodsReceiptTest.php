@@ -93,7 +93,9 @@ function resetInventory(int $productId, int $warehouseId, float $qty = 0, float 
 beforeEach(function () {
     (new DefaultRolesSeeder)->run();
 
-    // Bersihkan state akumulatif yang dibuat test sebelumnya.
+    // Bersihkan state akumulatif yang dibuat test sebelumnya (urut FK: AP→GR→PO).
+    \App\Models\Tenant\ApPayment::query()->delete();
+    \App\Models\Tenant\AccountsPayable::query()->delete();
     GoodsReceipt::query()->delete(); // cascade ke items via FK
     PurchaseOrder::query()->delete();
     StockMovement::query()->withoutGlobalScopes()->where('ref_type', GoodsReceipt::class)->delete();

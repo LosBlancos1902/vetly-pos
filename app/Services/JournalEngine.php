@@ -194,6 +194,30 @@ class JournalEngine
     }
 
     /**
+     * AP payment (pelunasan hutang supplier):
+     *   D 2101 Hutang Supplier   = amount
+     *   C cashCoaCode (e.g. 1101 Kas Besar, 1103 Bank BCA) = amount
+     *
+     * Default kas = 1101. UI biarkan user pilih (kas kecil/bank/dsb).
+     */
+    public function postApPayment(
+        string $ref,
+        float $amount,
+        string $cashCoaCode = '1101',
+        ?int $refId = null,
+    ): Journal {
+        return $this->post(
+            description: "Pembayaran hutang {$ref}",
+            refType: 'ap_payment',
+            refId: $refId,
+            lines: [
+                ['2101', $amount, 0.0],
+                [$cashCoaCode, 0.0, $amount],
+            ],
+        );
+    }
+
+    /**
      * Stock opname / adjustment:
      *   plus  => D 1201 Persediaan / C 5100 HPP
      *   minus => D 5100 HPP        / C 1201 Persediaan
