@@ -170,18 +170,25 @@ class JournalEngine
 
     /**
      * Purchase / goods receipt:
-     *   D 1201 Persediaan   = amount
-     *   C 2101 Hutang Supplier = amount
+     *   D 1201 Persediaan          = amount
+     *   C 1101 Kas Besar (cash)   OR
+     *   C 2101 Hutang Supplier (tempo) = amount
      */
-    public function postPurchase(string $ref, float $amount): Journal
-    {
+    public function postPurchase(
+        string $ref,
+        float $amount,
+        string $paymentType = 'tempo',
+        ?int $refId = null,
+    ): Journal {
+        $creditCoa = $paymentType === 'cash' ? '1101' : '2101';
+
         return $this->post(
             description: "Pembelian {$ref}",
             refType: 'purchase',
-            refId: null,
+            refId: $refId,
             lines: [
                 ['1201', $amount, 0.0],
-                ['2101', 0.0, $amount],
+                [$creditCoa, 0.0, $amount],
             ],
         );
     }

@@ -79,6 +79,8 @@ function basePoForm(int $supplierId, int $warehouseId, int $productId, int $unit
 beforeEach(function () {
     (new DefaultRolesSeeder)->run();
 
+    // Bersihkan dependent rows (GoodsReceipts FK ke purchase_orders).
+    \App\Models\Tenant\GoodsReceipt::query()->delete();
     PurchaseOrder::query()->delete();
     Supplier::query()->where('code', 'like', 'PO-TEST-%')->delete();
 

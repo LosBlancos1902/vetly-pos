@@ -91,6 +91,12 @@ export default function Authenticated({
                     routeMatch: 'purchasing.orders.*',
                     anyPermission: ['purchasing.po_create', 'purchasing.po_approve'],
                 },
+                {
+                    label: 'Penerimaan',
+                    href: route('purchasing.receipts.index'),
+                    routeMatch: 'purchasing.receipts.*',
+                    permission: 'purchasing.receive',
+                },
             ],
         },
         {

@@ -11,6 +11,7 @@ use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
 use App\Http\Controllers\Master\ServiceController;
 use App\Http\Controllers\Master\SupplierController;
+use App\Http\Controllers\Purchasing\GoodsReceiptController;
 use App\Http\Controllers\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Purchasing\PurchaseRequestController;
 use App\Http\Controllers\Pharmacy\CompoundController as PharmacyCompoundController;
@@ -104,6 +105,14 @@ Route::middleware([
                 ->middleware('can:purchasing.po_approve')->name('orders.reject');
             Route::post('/orders/{purchaseOrder}/cancel', [PurchaseOrderController::class, 'cancel'])
                 ->name('orders.cancel');
+
+            // Goods Receipts
+            Route::get('/receipts', [GoodsReceiptController::class, 'index'])
+                ->middleware('can:purchasing.receive')->name('receipts.index');
+            Route::get('/receipts/create/{purchaseOrder}', [GoodsReceiptController::class, 'create'])
+                ->middleware('can:purchasing.receive')->name('receipts.create');
+            Route::post('/receipts', [GoodsReceiptController::class, 'store'])
+                ->middleware('can:purchasing.receive')->name('receipts.store');
         });
 
         // Pharmacy — compound execution (racikan)
