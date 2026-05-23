@@ -85,6 +85,12 @@ export default function Authenticated({
                     routeMatch: 'purchasing.requests.*',
                     anyPermission: ['purchasing.pr_create', 'purchasing.pr_approve'],
                 },
+                {
+                    label: 'Purchase Order',
+                    href: route('purchasing.orders.index'),
+                    routeMatch: 'purchasing.orders.*',
+                    anyPermission: ['purchasing.po_create', 'purchasing.po_approve'],
+                },
             ],
         },
         {

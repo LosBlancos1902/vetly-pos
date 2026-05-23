@@ -30,6 +30,10 @@ class DefaultRolesSeeder extends Seeder
         'purchasing.supplier_manage',
         'purchasing.pr_create',
         'purchasing.pr_approve',
+        // PO permissions: owner-only by default. Owner assigns to other
+        // roles at runtime via /settings/roles.
+        'purchasing.po_create',
+        'purchasing.po_approve',
         // Accounting
         'accounting.view',
         'accounting.journal.post',

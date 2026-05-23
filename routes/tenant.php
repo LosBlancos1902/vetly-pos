@@ -11,6 +11,7 @@ use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
 use App\Http\Controllers\Master\ServiceController;
 use App\Http\Controllers\Master\SupplierController;
+use App\Http\Controllers\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Purchasing\PurchaseRequestController;
 use App\Http\Controllers\Pharmacy\CompoundController as PharmacyCompoundController;
 use App\Http\Controllers\POS\CashierController;
@@ -87,6 +88,22 @@ Route::middleware([
                 ->middleware('can:purchasing.pr_approve')->name('requests.approve');
             Route::post('/requests/{purchaseRequest}/reject', [PurchaseRequestController::class, 'reject'])
                 ->middleware('can:purchasing.pr_approve')->name('requests.reject');
+
+            // Purchase Orders
+            Route::get('/orders', [PurchaseOrderController::class, 'index'])
+                ->name('orders.index');
+            Route::post('/orders', [PurchaseOrderController::class, 'store'])
+                ->middleware('can:purchasing.po_create')->name('orders.store');
+            Route::put('/orders/{purchaseOrder}', [PurchaseOrderController::class, 'update'])
+                ->middleware('can:purchasing.po_create')->name('orders.update');
+            Route::post('/orders/{purchaseOrder}/submit', [PurchaseOrderController::class, 'submit'])
+                ->middleware('can:purchasing.po_create')->name('orders.submit');
+            Route::post('/orders/{purchaseOrder}/approve', [PurchaseOrderController::class, 'approve'])
+                ->middleware('can:purchasing.po_approve')->name('orders.approve');
+            Route::post('/orders/{purchaseOrder}/reject', [PurchaseOrderController::class, 'reject'])
+                ->middleware('can:purchasing.po_approve')->name('orders.reject');
+            Route::post('/orders/{purchaseOrder}/cancel', [PurchaseOrderController::class, 'cancel'])
+                ->name('orders.cancel');
         });
 
         // Pharmacy — compound execution (racikan)
