@@ -110,8 +110,14 @@ export default function Authenticated({
                 {
                     label: 'Inventori',
                     href: route('inventory.stock'),
-                    routeMatch: 'inventory.*',
+                    routeMatch: 'inventory.stock',
                     permission: 'inventory.view',
+                },
+                {
+                    label: 'Stock Opname',
+                    href: route('inventory.opnames.index'),
+                    routeMatch: 'inventory.opnames.*',
+                    permission: 'inventory.opname',
                 },
                 {
                     label: 'Racik Obat',

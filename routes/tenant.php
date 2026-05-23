@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Vetly\VetlyWebhookController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Inventory\StockCardController;
 use App\Http\Controllers\Inventory\StockController;
+use App\Http\Controllers\Inventory\StockOpnameController;
 use App\Http\Controllers\Master\CompoundController;
 use App\Http\Controllers\Master\ProductController;
 use App\Http\Controllers\Master\ServiceController;
@@ -134,6 +135,18 @@ Route::middleware([
         Route::post('/inventory/adjustment', [StockController::class, 'adjust'])->name('inventory.adjustment');
         Route::get('/inventory/stock-card/{product}', [StockCardController::class, 'show'])
             ->middleware('can:inventory.view')->name('inventory.stock_card');
+
+        // Stock Opname
+        Route::middleware('can:inventory.opname')->prefix('inventory/opnames')
+            ->name('inventory.opnames.')->group(function () {
+                Route::get('/', [StockOpnameController::class, 'index'])->name('index');
+                Route::get('/create', [StockOpnameController::class, 'create'])->name('create');
+                Route::post('/', [StockOpnameController::class, 'store'])->name('store');
+                Route::get('/{opname}', [StockOpnameController::class, 'show'])->name('show');
+                Route::put('/{opname}/items', [StockOpnameController::class, 'updateItems'])->name('update_items');
+                Route::post('/{opname}/complete', [StockOpnameController::class, 'complete'])->name('complete');
+                Route::post('/{opname}/cancel', [StockOpnameController::class, 'cancel'])->name('cancel');
+            });
 
         // Sales history
         Route::get('/sales', [SaleController::class, 'index'])->name('sales.index');

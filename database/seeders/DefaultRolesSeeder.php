@@ -63,7 +63,9 @@ class DefaultRolesSeeder extends Seeder
         'owner' => ['*'],
         'manager' => [
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
-            'inventory.view', 'inventory.adjustment', 'inventory.transfer', 'inventory.opname',
+            // NOTE: inventory.opname dipindahkan ke owner-only (financial action,
+            // post jurnal HPP). Owner assign manual via /settings/roles.
+            'inventory.view', 'inventory.adjustment', 'inventory.transfer',
             'purchasing.manage', 'purchasing.supplier_manage',
             'purchasing.pr_create', 'purchasing.pr_approve',
             'accounting.view', 'accounting.journal.post',
