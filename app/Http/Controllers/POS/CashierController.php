@@ -148,26 +148,73 @@ class CashierController extends Controller
             'items.*.qty' => ['required', 'numeric', 'min:0.0001'],
             'items.*.price' => ['required', 'numeric', 'min:0'],
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'payments' => ['required', 'array', 'min:1'],
-            'payments.*.method' => ['required', 'string'],
-            'payments.*.amount' => ['required', 'numeric', 'min:0'],
+            // F1 payment flow — split SKIP, single payment per sale.
+            // Backward-compat: payments[] tetap diterima (sales_payments
+            // table jadi source of truth). Field flat di sales = denorm
+            // convenience.
+            'payment_method' => ['nullable', 'string', 'in:cash,transfer,qris'],
+            'amount_paid' => ['nullable', 'numeric', 'min:0'],
+            'payments' => ['nullable', 'array'],
+            'payments.*.method' => ['required_with:payments', 'string'],
+            'payments.*.amount' => ['required_with:payments', 'numeric', 'min:0'],
         ]);
 
         $warehouse = Warehouse::findOrFail($data['warehouse_id']);
 
-        $sale = DB::transaction(function () use ($data, $request, $warehouse, $stock, $journal, $serviceBundles) {
+        // ── ANTI-TAMPER: hitung total dari items SEBELUM transaction.
+        // Server tidak pernah baca 'total' dari client. Validasi cash
+        // jalan pakai computed total — bukan amount_paid client.
+        $computedSubtotal = 0.0;
+        $computedDiscount = 0.0;
+        foreach ($data['items'] as $i) {
+            $computedSubtotal += (float) $i['qty'] * (float) $i['price'];
+            $computedDiscount += (float) ($i['discount_amount'] ?? 0);
+        }
+        $computedTotal = $computedSubtotal - $computedDiscount;
+
+        // Resolve payment fields (prefer flat, fallback ke payments[0] untuk
+        // backward compat existing test/client).
+        $paymentMethod = $data['payment_method']
+            ?? ($data['payments'][0]['method'] ?? null);
+        $amountPaid = isset($data['amount_paid'])
+            ? (float) $data['amount_paid']
+            : ((float) ($data['payments'][0]['amount'] ?? $computedTotal));
+
+        // Normalize untuk validation (legacy methods di-map ke 3 modern).
+        if ($paymentMethod !== null && ! in_array($paymentMethod, ['cash', 'transfer', 'qris'], true)) {
+            // Legacy method (debit/credit/ewallet/voucher) — treat as non-cash.
+            $effectiveMethod = 'transfer';
+        } else {
+            $effectiveMethod = $paymentMethod ?? 'cash';
+        }
+
+        if ($effectiveMethod === 'cash') {
+            if ($amountPaid + 0.001 < $computedTotal) {
+                abort(422, 'Uang diterima kurang dari total.');
+            }
+        } else {
+            // Transfer/QRIS — amount_paid harus exact (toleransi rounding 0.01)
+            if (abs($amountPaid - $computedTotal) > 0.01) {
+                abort(422, 'Untuk transfer/QRIS, uang diterima harus = total.');
+            }
+        }
+
+        $changeAmount = max(0, $amountPaid - $computedTotal);
+
+        $sale = DB::transaction(function () use (
+            $data, $request, $warehouse, $stock, $journal, $serviceBundles,
+            $computedSubtotal, $computedDiscount, $computedTotal,
+            $paymentMethod, $amountPaid, $changeAmount,
+        ) {
             // SO-frozen context: map [product_id => opname_id] untuk warehouse ini.
             // Kalau kosong (no active SO) → semua flow normal, zero deviation.
             // Kalau ada → produk yang lagi di-snap akan defer-ke-pending.
             $frozenContext = StockOpname::frozenContextFor($warehouse->id);
 
-            $subtotal = 0;
-            $discount = 0;
-            foreach ($data['items'] as $i) {
-                $subtotal += $i['qty'] * $i['price'];
-                $discount += $i['discount_amount'] ?? 0;
-            }
-            $total = $subtotal - $discount;
+            // Alias supaya rest of function tidak berubah (avoid diff besar)
+            $subtotal = $computedSubtotal;
+            $discount = $computedDiscount;
+            $total = $computedTotal;
 
             $sale = Sale::create([
                 'invoice_no' => 'INV-'.now()->format('YmdHis').'-'.random_int(100, 999),
@@ -176,6 +223,11 @@ class CashierController extends Controller
                 'cashier_id' => $request->user()->id,
                 'customer_id' => $data['customer_id'] ?? null,
                 'price_tier_id' => $data['price_tier_id'] ?? null,
+                'payment_method' => in_array($paymentMethod, ['cash', 'transfer', 'qris'], true)
+                    ? $paymentMethod
+                    : null, // legacy 7-enum method ditolak masuk kolom flat (denorm cuma 3)
+                'amount_paid' => $amountPaid,
+                'change_amount' => $changeAmount,
                 'subtotal' => $subtotal,
                 'discount_amount' => $discount,
                 'tax_amount' => 0,
@@ -265,11 +317,25 @@ class CashierController extends Controller
                 }
             }
 
-            foreach ($data['payments'] as $p) {
+            // sales_payments tetap di-insert sebagai source of truth.
+            // Kalau client kirim payments[] (legacy/test) → loop apa adanya.
+            // Kalau cuma kirim flat (F1 modern client) → synthesize 1 row
+            // dgn amount = total (bukan amount_paid, supaya rekap penerimaan
+            // tetap = sales.total; kembalian = duit balik ke customer).
+            if (! empty($data['payments'])) {
+                foreach ($data['payments'] as $p) {
+                    $sale->payments()->create([
+                        'method' => $p['method'],
+                        'amount' => $p['amount'],
+                        'reference_no' => $p['reference_no'] ?? null,
+                        'paid_at' => now(),
+                    ]);
+                }
+            } else {
                 $sale->payments()->create([
-                    'method' => $p['method'],
-                    'amount' => $p['amount'],
-                    'reference_no' => $p['reference_no'] ?? null,
+                    'method' => $paymentMethod ?? 'cash',
+                    'amount' => $computedTotal, // penerimaan bersih, exclude change
+                    'reference_no' => null,
                     'paid_at' => now(),
                 ]);
             }

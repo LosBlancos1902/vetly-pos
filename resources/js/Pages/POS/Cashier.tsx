@@ -160,6 +160,11 @@ export default function Cashier({ warehouses, tiers }: Props) {
         }));
     }
 
+    // Override harga per-line (diskon nego per barang). Total auto-recompute.
+    function setPrice(idx: number, price: number) {
+        setCart((c) => c.map((l, i) => (i === idx ? { ...l, price: Math.max(0, price) } : l)));
+    }
+
     function removeLine(idx: number) {
         setCart((c) => c.filter((_, i) => i !== idx));
     }
@@ -228,7 +233,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                                         </Badge>
                                                     )}
                                                 </div>
-                                                <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                                                     {hasMultiUnit ? (
                                                         <select
                                                             value={l.unit_id}
@@ -245,7 +250,16 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                                         <span>{l.units[0]?.code ?? ''}</span>
                                                     )}
                                                     <span>·</span>
-                                                    <span>{rupiah(l.price)}</span>
+                                                    <Input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        value={l.price}
+                                                        onChange={(e) => setPrice(i, Number(e.target.value))}
+                                                        className="h-8 w-28 text-right text-xs"
+                                                        title="Harga per unit (boleh override)"
+                                                        disabled={isService}
+                                                    />
                                                 </div>
                                             </td>
                                             <td className="p-3">
@@ -283,10 +297,19 @@ export default function Cashier({ warehouses, tiers }: Props) {
 
                 <div>
                     <Card>
-                        <CardContent className="space-y-4 p-6">
-                            <div className="flex justify-between text-lg">
-                                <span>Total</span>
-                                <span className="font-bold">{rupiah(total)}</span>
+                        <CardContent className="space-y-3 p-6">
+                            <div className="space-y-1 text-sm text-muted-foreground">
+                                <div className="flex justify-between">
+                                    <span>Subtotal</span>
+                                    <span>{rupiah(total)}</span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                    <span>{cart.length} item · {cart.reduce((s, l) => s + l.qty, 0).toFixed(2)} qty</span>
+                                </div>
+                            </div>
+                            <div className="flex justify-between border-t pt-3 text-lg">
+                                <span className="font-semibold">Total</span>
+                                <span className="text-2xl font-bold">{rupiah(total)}</span>
                             </div>
                             <Button
                                 size="lg"
@@ -294,7 +317,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                 disabled={cart.length === 0}
                                 onClick={() => setPayOpen(true)}
                             >
-                                BAYAR
+                                BAYAR · {rupiah(total)}
                             </Button>
                         </CardContent>
                     </Card>
@@ -305,7 +328,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                 open={payOpen}
                 onClose={() => setPayOpen(false)}
                 total={total}
-                onSubmit={async (payments) => {
+                onSubmit={async (payment) => {
                     try {
                         const { data } = await axios.post(route('pos.sales.store'), {
                             warehouse_id: warehouseId,
@@ -317,9 +340,15 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                 price: l.price,
                                 discount_amount: 0,
                             })),
-                            payments,
+                            payment_method: payment.payment_method,
+                            amount_paid: payment.amount_paid,
                         });
-                        toast.success(`Transaksi ${data.sale.invoice_no} berhasil`);
+                        toast.success(
+                            `Transaksi ${data.sale.invoice_no} berhasil`
+                            + (Number(data.sale.change_amount) > 0
+                                ? ` · kembalian ${rupiah(Number(data.sale.change_amount))}`
+                                : ''),
+                        );
                         setCart([]);
                         setPayOpen(false);
                         // ESC/POS payload ready: data.escpos_payload_58mm / _80mm
