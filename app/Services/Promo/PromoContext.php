@@ -22,6 +22,7 @@ class PromoContext
         public readonly CarbonInterface $datetime,
         public readonly float $subtotal,         // sum(qty × price)
         public readonly float $manualDiscount,   // sum(items.discount_amount) — diskon manual per-item
+        public readonly ?string $voucherCode = null, // tipe 3 — kasir input dari customer (normalized UPPERCASE)
     ) {
     }
 

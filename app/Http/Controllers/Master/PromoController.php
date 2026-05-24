@@ -99,6 +99,9 @@ class PromoController extends Controller
                 'min_qty' => $data['min_qty'] ?? 0,
                 'quota_total' => $data['quota_total'] ?? null,
                 'config' => $this->buildConfig($data),
+                'voucher_code' => $data['type'] === Promo::TYPE_VOUCHER
+                    ? ($data['voucher_code'] ?? null)
+                    : null,
                 'is_active' => $data['is_active'] ?? true,
                 'created_by' => $request->user()->id,
             ]);
@@ -161,6 +164,9 @@ class PromoController extends Controller
                 'min_qty' => $data['min_qty'] ?? 0,
                 'quota_total' => $data['quota_total'] ?? null,
                 'config' => $this->buildConfig($data),
+                'voucher_code' => $data['type'] === Promo::TYPE_VOUCHER
+                    ? ($data['voucher_code'] ?? null)
+                    : null,
                 'is_active' => $data['is_active'] ?? $promo->is_active,
             ]);
 
@@ -191,6 +197,18 @@ class PromoController extends Controller
 
     private function validatePromo(Request $request, ?int $promoId = null): array
     {
+        // Normalize voucher_code ke UPPERCASE SEBELUM validasi unique
+        // supaya 'diskonA' vs 'DISKONA' di-collapse jadi 1 kode.
+        if ($request->filled('voucher_code')) {
+            $request->merge([
+                'voucher_code' => strtoupper(trim((string) $request->voucher_code)),
+            ]);
+        }
+
+        $voucherUnique = $promoId
+            ? Rule::unique('promos', 'voucher_code')->ignore($promoId)
+            : Rule::unique('promos', 'voucher_code');
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'type' => ['required', Rule::in([
@@ -222,6 +240,9 @@ class PromoController extends Controller
             'product_ids.*' => ['integer', 'exists:products,id'],
             'category_ids' => ['nullable', 'array'],
             'category_ids.*' => ['integer', 'exists:categories,id'],
+            // Tipe 3 voucher param — A-Z 0-9 _ - only, max 32
+            'voucher_code' => ['nullable', 'string', 'max:32',
+                'regex:/^[A-Z0-9_\-]+$/', $voucherUnique],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -231,6 +252,13 @@ class PromoController extends Controller
             $hasCategories = ! empty($data['category_ids']);
             if (! $hasProducts && ! $hasCategories) {
                 abort(422, 'Tipe Per-Barang wajib pilih minimal 1 produk atau 1 kategori.');
+            }
+        }
+
+        // Tipe-specific validasi: voucher butuh kode terisi
+        if ($data['type'] === Promo::TYPE_VOUCHER) {
+            if (empty($data['voucher_code'])) {
+                abort(422, 'Tipe Voucher wajib mengisi Kode Voucher.');
             }
         }
 

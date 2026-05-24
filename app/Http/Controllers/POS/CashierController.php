@@ -140,6 +140,7 @@ class CashierController extends Controller
         $data = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'customer_id' => ['nullable', 'integer'],
+            'voucher_code' => ['nullable', 'string', 'max:32'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer'],
             'items.*.unit_id' => ['required', 'integer'],
@@ -156,6 +157,10 @@ class CashierController extends Controller
             $manualDiscount += (float) ($i['discount_amount'] ?? 0);
         }
 
+        $voucherCode = ! empty($data['voucher_code'])
+            ? strtoupper(trim($data['voucher_code']))
+            : null;
+
         $result = $resolver->resolve(new PromoContext(
             items: $data['items'],
             warehouse: $warehouse,
@@ -163,6 +168,7 @@ class CashierController extends Controller
             datetime: now(),
             subtotal: $subtotal,
             manualDiscount: $manualDiscount,
+            voucherCode: $voucherCode,
         ));
 
         return response()->json([
@@ -197,6 +203,8 @@ class CashierController extends Controller
             // Server tidak re-validate vs tier accessor — kasir bisa
             // override price/diskon manual.
             'price_tier_id' => ['nullable', 'integer', 'exists:price_tiers,id'],
+            // Tipe 3 voucher — kasir input kode dari customer (optional)
+            'voucher_code' => ['nullable', 'string', 'max:32'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer'],
             'items.*.unit_id' => ['required', 'integer'],
@@ -232,6 +240,10 @@ class CashierController extends Controller
         // Quota habis di tengah race → strategi: tetap apply di sini,
         // tapi di transaction loop lockForUpdate + re-check (kalau gugur,
         // skip + flag di response).
+        $voucherCodeStore = ! empty($data['voucher_code'])
+            ? strtoupper(trim($data['voucher_code']))
+            : null;
+
         $promoResult = $promoResolver->resolve(new PromoContext(
             items: $data['items'],
             warehouse: $warehouse,
@@ -239,6 +251,7 @@ class CashierController extends Controller
             datetime: now(),
             subtotal: $computedSubtotal,
             manualDiscount: $computedDiscount,
+            voucherCode: $voucherCodeStore,
         ));
         $promoDiscountInitial = $promoResult->totalDiscount;
 

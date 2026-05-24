@@ -80,6 +80,8 @@ export default function Cashier({ warehouses, tiers }: Props) {
     const [payOpen, setPayOpen] = useState(false);
     const [promoDiscount, setPromoDiscount] = useState(0);
     const [appliedPromos, setAppliedPromos] = useState<AppliedPromoLite[]>([]);
+    const [voucherInput, setVoucherInput] = useState('');
+    const [voucherApplied, setVoucherApplied] = useState(''); // kode yg sudah di-apply ke preview
     const previewAbortRef = useRef<AbortController | null>(null);
 
     const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
@@ -104,6 +106,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                     {
                         warehouse_id: warehouseId,
                         customer_id: customer?.id ?? null,
+                        voucher_code: voucherApplied || null,
                         items: cart.map((l) => ({
                             product_id: l.product_id,
                             unit_id: l.unit_id,
@@ -126,7 +129,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
         }, 300);
 
         return () => clearTimeout(id);
-    }, [cart, warehouseId, customer]);
+    }, [cart, warehouseId, customer, voucherApplied]);
 
     // Ganti tier global → semua cart line auto-re-price ke tier baru
     // untuk SATUAN yg sedang dipilih per line.
@@ -260,6 +263,40 @@ export default function Cashier({ warehouses, tiers }: Props) {
                             <div className="flex-1 min-w-[16rem]">
                                 <CustomerPicker selected={customer} onChange={setCustomer} />
                             </div>
+                            {voucherApplied ? (
+                                <div className="flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-mono text-emerald-800">
+                                    🎟 {voucherApplied}
+                                    <button type="button"
+                                        onClick={() => { setVoucherApplied(''); setVoucherInput(''); }}
+                                        className="ml-1 text-emerald-600 hover:text-destructive"
+                                        title="Hapus voucher">
+                                        ✕
+                                    </button>
+                                </div>
+                            ) : (
+                                <form
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        const code = voucherInput.toUpperCase().trim();
+                                        if (! code) return;
+                                        setVoucherApplied(code);
+                                    }}
+                                    className="flex gap-1"
+                                >
+                                    <Input
+                                        value={voucherInput}
+                                        onChange={(e) => setVoucherInput(
+                                            e.target.value.toUpperCase().replace(/[^A-Z0-9_\-]/g, ''),
+                                        )}
+                                        placeholder="Kode voucher"
+                                        className="w-40 font-mono uppercase"
+                                        maxLength={32}
+                                    />
+                                    <Button type="submit" variant="outline" disabled={! voucherInput.trim()}>
+                                        Apply
+                                    </Button>
+                                </form>
+                            )}
                         </div>
                         <ProductSearchInput
                             warehouseId={warehouseId}
@@ -408,6 +445,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                             warehouse_id: warehouseId,
                             price_tier_id: tierId || null,
                             customer_id: customer?.id ?? null,
+                            voucher_code: voucherApplied || null,
                             items: cart.map((l) => ({
                                 product_id: l.product_id,
                                 unit_id: l.unit_id,
@@ -433,6 +471,8 @@ export default function Cashier({ warehouses, tiers }: Props) {
                         setCustomer(null);
                         setPromoDiscount(0);
                         setAppliedPromos([]);
+                        setVoucherInput('');
+                        setVoucherApplied('');
                         setPayOpen(false);
                         // ESC/POS payload ready: data.escpos_payload_58mm / _80mm
                         // -> printReceipt() from '@/lib/bluetoothPrinter'

@@ -49,6 +49,7 @@ interface Promo {
     quota_used: number;
     is_active: boolean;
     config: { product_ids?: number[]; category_ids?: number[] } | null;
+    voucher_code: string | null;
     warehouses: Array<{ id: number; name: string }>;
 }
 
@@ -76,12 +77,12 @@ interface Props {
 const TYPE_LABEL: Record<PromoType, string> = {
     periode_discount: 'Diskon Periode',
     per_item: 'Diskon Per-Barang',
-    voucher: 'Kode Voucher (coming soon)',
+    voucher: 'Kode Voucher',
     bundling: 'Bundling (coming soon)',
     tebus_murah: 'Tebus Murah (coming soon)',
 };
 
-const ENABLED_TYPES: PromoType[] = ['periode_discount', 'per_item'];
+const ENABLED_TYPES: PromoType[] = ['periode_discount', 'per_item', 'voucher'];
 
 const DAYS: { value: DayOfWeek; label: string }[] = [
     { value: 'mon', label: 'Sen' }, { value: 'tue', label: 'Sel' },
@@ -114,6 +115,7 @@ interface FormState {
     product_ids: number[];   // tipe per_item
     category_ids: number[];  // tipe per_item
     product_search: string;  // local filter
+    voucher_code: string;    // tipe voucher
 }
 
 function emptyForm(): FormState {
@@ -144,6 +146,7 @@ function emptyForm(): FormState {
         product_ids: [],
         category_ids: [],
         product_search: '',
+        voucher_code: '',
     };
 }
 
@@ -187,6 +190,7 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             product_ids: p.config?.product_ids ?? [],
             category_ids: p.config?.category_ids ?? [],
             product_search: '',
+            voucher_code: p.voucher_code ?? '',
         });
         setTab('umum');
         setOpen(true);
@@ -261,6 +265,7 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             // Per-item params (server abaikan kalau type != per_item)
             product_ids: form.type === 'per_item' ? form.product_ids : [],
             category_ids: form.type === 'per_item' ? form.category_ids : [],
+            voucher_code: form.type === 'voucher' ? form.voucher_code.toUpperCase().trim() : null,
         };
 
         const opts = {
@@ -348,7 +353,14 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                                 )}
                                 {promos.data.map((p) => (
                                     <TableRow key={p.id}>
-                                        <TableCell className="font-medium">{p.name}</TableCell>
+                                        <TableCell className="font-medium">
+                                            {p.name}
+                                            {p.voucher_code && (
+                                                <div className="font-mono text-[10px] text-sky-700">
+                                                    kode: {p.voucher_code}
+                                                </div>
+                                            )}
+                                        </TableCell>
                                         <TableCell>
                                             <Badge variant="muted">{TYPE_LABEL[p.type]}</Badge>
                                         </TableCell>
@@ -563,6 +575,33 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                                                 ⓘ Cap diskon di-apply <strong>per item match</strong> (bukan total transaksi).
                                             </p>
                                         )}
+                                    </div>
+                                )}
+
+                                {form.type === 'voucher' && (
+                                    <div className="border-t pt-3 space-y-2">
+                                        <Label htmlFor="vcode" className="text-sm font-semibold">
+                                            Kode Voucher *
+                                        </Label>
+                                        <Input id="vcode"
+                                            value={form.voucher_code}
+                                            onChange={(e) => setForm({
+                                                ...form,
+                                                voucher_code: e.target.value
+                                                    .toUpperCase()
+                                                    .replace(/[^A-Z0-9_\-]/g, ''),
+                                            })}
+                                            placeholder="DISKON20"
+                                            maxLength={32}
+                                            className="font-mono uppercase tracking-wider"
+                                            required={form.type === 'voucher'}
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            A-Z, 0-9, underscore, dash. Auto UPPERCASE. Pelanggan kasih kode
+                                            ini ke kasir saat transaksi. Kode harus <strong>unik</strong> antar
+                                            semua promo.
+                                            {' '}Set kuota = 1 di tab "Kuota" untuk single-use voucher.
+                                        </p>
                                     </div>
                                 )}
 

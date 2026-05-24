@@ -821,6 +821,213 @@ it('FILTER STATUS: active/inactive/upcoming → query results match definisi for
     expect($names)->toBe(['Status Inactive Expired', 'Status Inactive Off']);
 });
 
+// ─── TIPE 3 VOUCHER ─────────────────────────────────────────────────────
+
+it('VOUCHER: applicable kalau kode match (case-insensitive)', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Voucher Match',
+        'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'percent',
+        'discount_value' => 20,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'voucher_code' => 'DISKON20',
+        'is_active' => true,
+    ]);
+
+    // Match exact UPPERCASE
+    $ctx1 = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+        voucherCode: 'DISKON20',
+    );
+    expect(app(PromoResolver::class)->resolve($ctx1)->totalDiscount)->toBe(20000.0);
+
+    // Match case-insensitive (lowercase input → strategy normalize)
+    $ctx2 = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+        voucherCode: 'diskon20',
+    );
+    expect(app(PromoResolver::class)->resolve($ctx2)->totalDiscount)->toBe(20000.0);
+});
+
+it('VOUCHER: NOT applicable kalau kasir tidak input kode (null)', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Voucher Silent',
+        'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'percent',
+        'discount_value' => 20,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'voucher_code' => 'SECRET',
+        'is_active' => true,
+    ]);
+
+    $ctx = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+        voucherCode: null,
+    );
+    expect(app(PromoResolver::class)->resolve($ctx)->applied)->toBe([]);
+});
+
+it('VOUCHER: NOT applicable kalau kode mismatch', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Voucher MISMATCH',
+        'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'nominal',
+        'discount_value' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'voucher_code' => 'KODE1',
+        'is_active' => true,
+    ]);
+
+    $ctx = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+        voucherCode: 'KODE2',
+    );
+    expect(app(PromoResolver::class)->resolve($ctx)->applied)->toBe([]);
+});
+
+it('VOUCHER + 5-dimensi: kuota habis → NOT applicable meski kode benar', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Voucher Exhausted',
+        'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'percent',
+        'discount_value' => 10,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'voucher_code' => 'HABIS',
+        'quota_total' => 1,
+        'quota_used' => 1,
+        'is_active' => true,
+    ]);
+
+    $ctx = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+        voucherCode: 'HABIS',
+    );
+    expect(app(PromoResolver::class)->resolve($ctx)->applied)->toBe([]);
+});
+
+it('VOUCHER: cap honored (50% × 250rb cap 10rb → 10rb)', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Voucher Cap',
+        'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'percent',
+        'discount_value' => 50,
+        'max_discount_amount' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'voucher_code' => 'BIGCAP',
+        'is_active' => true,
+    ]);
+
+    $ctx = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 1, 'price' => 250000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 250000, manualDiscount: 0,
+        voucherCode: 'BIGCAP',
+    );
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)->toBe(10000.0);
+});
+
+it('VOUCHER INTEGRATION: e2e via CashierController, jurnal balance + single-use quota', function () {
+    $w = Warehouse::firstOrFail();
+    $p = Product::where('sku', 'SKU-001')->firstOrFail();
+
+    \App\Models\Tenant\Inventory::withoutGlobalScopes()->updateOrInsert(
+        ['product_id' => $p->id, 'warehouse_id' => $w->id],
+        ['qty' => 100, 'cost_avg' => 4000, 'updated_at' => now(), 'created_at' => now()],
+    );
+    Product::where('id', $p->id)->update(['cost_avg' => 4000]);
+
+    Promo::create([
+        'name' => 'Voucher E2E',
+        'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'nominal',
+        'discount_value' => 5000,
+        'starts_at' => now()->subHour(), 'ends_at' => now()->addHour(),
+        'voucher_code' => 'E2E5K',
+        'quota_total' => 1, // single-use
+        'is_active' => true,
+    ]);
+
+    $controller = app(\App\Http\Controllers\POS\CashierController::class);
+    $stock = new \App\Services\StockMovement(new \App\Services\HppCalculator, new \App\Services\UnitConverter);
+
+    // Tx 1: kasir input kode (lowercase, server normalize) → diskon apply, quota habis
+    $req1 = \Illuminate\Http\Request::create('/pos/sales', 'POST', [
+        'warehouse_id' => $w->id,
+        'voucher_code' => 'e2e5k',
+        'items' => [['product_id' => $p->id, 'unit_id' => $p->base_unit_id, 'qty' => 1, 'price' => 20000]],
+        'payment_method' => 'cash',
+        'amount_paid' => 15000,
+    ]);
+    $req1->setUserResolver(fn () => Auth::user());
+    $controller->store($req1, $stock, app(\App\Services\JournalEngine::class),
+        new \App\Services\ServiceBundleService($stock, new \App\Services\UnitConverter),
+        new \App\Services\VetlySyncService);
+
+    $sale1 = Sale::latest('id')->firstOrFail();
+    expect((float) $sale1->promo_discount_amount)->toBe(5000.0)
+        ->and((float) $sale1->total)->toBe(15000.0);
+    expect(Promo::where('voucher_code', 'E2E5K')->value('quota_used'))->toBe(1);
+
+    // Journal balance check
+    $journal = Journal::where('ref_type', \App\Models\Tenant\Sale::class)
+        ->where('ref_id', $sale1->id)->latest('id')->first();
+    $entries = $journal->entries()->with('coa')->get();
+    expect($entries->sum(fn ($e) => (float) $e->debit))
+        ->toBe($entries->sum(fn ($e) => (float) $e->credit));
+
+    // Tx 2: kode sama, quota habis → promo skip, sale full price
+    $req2 = \Illuminate\Http\Request::create('/pos/sales', 'POST', [
+        'warehouse_id' => $w->id,
+        'voucher_code' => 'E2E5K',
+        'items' => [['product_id' => $p->id, 'unit_id' => $p->base_unit_id, 'qty' => 1, 'price' => 20000]],
+        'payment_method' => 'cash',
+        'amount_paid' => 20000,
+    ]);
+    $req2->setUserResolver(fn () => Auth::user());
+    $controller->store($req2, $stock, app(\App\Services\JournalEngine::class),
+        new \App\Services\ServiceBundleService($stock, new \App\Services\UnitConverter),
+        new \App\Services\VetlySyncService);
+
+    $sale2 = Sale::latest('id')->firstOrFail();
+    expect((float) $sale2->promo_discount_amount)->toBe(0.0)
+        ->and((float) $sale2->total)->toBe(20000.0);
+});
+
+it('VOUCHER REGRESSION: Tipe 1 (periode) jalan normal tanpa voucher_code di ctx', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Periode tanpa Voucher',
+        'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent',
+        'discount_value' => 10,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+    ]);
+
+    // ctx tanpa voucherCode → Tipe 1 tetap auto-apply
+    $ctx = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+    );
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)->toBe(10000.0);
+});
+
 it('REGRESSION: postSplitSale (tanpa promo) tetap balance + format sama', function () {
     $w = Warehouse::firstOrFail();
     $sale = Sale::create([
