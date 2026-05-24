@@ -63,7 +63,23 @@ Route::middleware([
 
         // Master data
         Route::resource('master/products', ProductController::class)
-            ->names('master.products')->only(['index', 'store', 'update', 'destroy']);
+            ->names('master.products')
+            ->only(['index', 'show', 'store', 'update', 'destroy']);
+
+        // Price tiers (multi-tier dinamis: Eceran/Grosir/Klinik/dll).
+        // Tier default tidak bisa di-destroy (guard di controller).
+        Route::post('/master/price-tiers', [\App\Http\Controllers\Master\PriceTierController::class, 'store'])
+            ->name('master.price_tiers.store')
+            ->middleware('can:master.manage');
+        Route::put('/master/price-tiers/{tier}', [\App\Http\Controllers\Master\PriceTierController::class, 'update'])
+            ->name('master.price_tiers.update')
+            ->middleware('can:master.manage');
+        Route::delete('/master/price-tiers/{tier}', [\App\Http\Controllers\Master\PriceTierController::class, 'destroy'])
+            ->name('master.price_tiers.destroy')
+            ->middleware('can:master.manage');
+        Route::post('/master/price-tiers/{tier}/set-default', [\App\Http\Controllers\Master\PriceTierController::class, 'setDefault'])
+            ->name('master.price_tiers.set_default')
+            ->middleware('can:master.manage');
 
         Route::resource('master/compounds', CompoundController::class)
             ->parameters(['compounds' => 'recipe'])
