@@ -8,6 +8,7 @@ use App\Models\Tenant\Sale;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -76,6 +77,40 @@ class CustomerController extends Controller
             ->get(['id', 'code', 'name', 'phone', 'email']);
 
         return response()->json(['results' => $results]);
+    }
+
+    /**
+     * Customer detail + riwayat belanja paginated.
+     */
+    public function show(Request $request, Customer $customer): Response
+    {
+        $this->authorize('customer.manage');
+
+        $sales = Sale::query()
+            ->where('customer_id', $customer->id)
+            ->with(['warehouse:id,code,name', 'cashier:id,name'])
+            ->latest('date')
+            ->paginate(20)
+            ->withQueryString();
+
+        // Reconcile total_spent agar kalau cache drift (mis. void/refund
+        // di future), display tetap akurat. Cache tetap di-update untuk
+        // performance list page.
+        $actualTotal = (float) Sale::where('customer_id', $customer->id)
+            ->where('status', 'completed')
+            ->sum('total');
+        if (abs((float) $customer->total_spent - $actualTotal) > 0.01) {
+            $customer->update(['total_spent' => $actualTotal]);
+        }
+
+        return Inertia::render('Master/CustomerShow', [
+            'customer' => $customer,
+            'sales' => $sales,
+            'stats' => [
+                'total_sales' => $sales->total(),
+                'total_spent' => $actualTotal,
+            ],
+        ]);
     }
 
     public function store(Request $request): RedirectResponse

@@ -368,6 +368,24 @@ class CashierController extends Controller
 
         $vetly->pushSaleToVetly($sale);
 
+        // F3: increment customer.total_spent (di luar transaction utama —
+        // kalau cache update gagal/race, sale tetap valid; nanti detail
+        // page akan auto-reconcile via SUM query. Drift kalau ada void/
+        // refund di future = didocument utk fase later.)
+        if ($sale->customer_id !== null) {
+            try {
+                \App\Models\Tenant\Customer::where('id', $sale->customer_id)
+                    ->increment('total_spent', (float) $sale->total);
+            } catch (\Throwable $e) {
+                // Non-fatal — log saja, jangan throw.
+                \Log::warning('Customer total_spent increment failed', [
+                    'customer_id' => $sale->customer_id,
+                    'sale_id' => $sale->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         $printer = new ReceiptPrinter();
 
         return response()->json([

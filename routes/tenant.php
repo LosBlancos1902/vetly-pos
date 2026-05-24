@@ -102,7 +102,7 @@ Route::middleware([
         Route::resource('master/customers', \App\Http\Controllers\Master\CustomerController::class)
             ->parameters(['customers' => 'customer'])
             ->names('master.customers')
-            ->only(['index', 'store', 'update', 'destroy'])
+            ->only(['index', 'show', 'store', 'update', 'destroy'])
             ->middleware('can:customer.manage');
 
         // Price tiers (multi-tier dinamis: Eceran/Grosir/Klinik/dll).

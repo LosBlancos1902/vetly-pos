@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Head, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { toast } from 'sonner';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Badge } from '@/Components/ui/badge';
@@ -216,6 +216,9 @@ export default function Customers({ customers, filters }: Props) {
                                             )}
                                         </TableCell>
                                         <TableCell className="text-right space-x-1">
+                                            <Link href={route('master.customers.show', c.id)}>
+                                                <Button size="sm" variant="ghost">Riwayat</Button>
+                                            </Link>
                                             <Button size="sm" variant="ghost" onClick={() => startEdit(c)}>
                                                 Edit
                                             </Button>

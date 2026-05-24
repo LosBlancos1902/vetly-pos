@@ -230,6 +230,96 @@ it('REGRESSION: walk-in sale (customer_id=null) tetap valid', function () {
     expect($sale->customer_id)->toBeNull();
 });
 
+it('F3: show() expose customer detail + sales history paginated', function () {
+    Auth::login(ownerForCustomer());
+    $c = Customer::create(['code' => Customer::generateCode(), 'name' => 'History Test',
+        'phone' => '081000000001', 'is_active' => true]);
+
+    $warehouse = Warehouse::firstOrFail();
+    for ($i = 1; $i <= 3; $i++) {
+        Sale::create([
+            'invoice_no' => 'INV-HIST-'.uniqid(),
+            'date' => now()->subDays($i),
+            'warehouse_id' => $warehouse->id,
+            'cashier_id' => Auth::id(),
+            'customer_id' => $c->id,
+            'subtotal' => $i * 10000, 'discount_amount' => 0, 'tax_amount' => 0,
+            'total' => $i * 10000,
+            'payment_status' => 'paid', 'status' => 'completed',
+        ]);
+    }
+
+    $controller = app(CustomerController::class);
+    $req = Request::create('', 'GET');
+    $req->setUserResolver(fn () => Auth::user());
+    /** @var \Inertia\Response $response */
+    $response = $controller->show($req, $c);
+    $props = $response->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+
+    expect($props)->toHaveKeys(['customer', 'sales', 'stats'])
+        ->and($props['sales']['total'])->toBe(3)
+        ->and($props['stats']['total_sales'])->toBe(3)
+        ->and((float) $props['stats']['total_spent'])->toBe(60000.0); // 10+20+30
+});
+
+it('F3: show() reconcile total_spent kalau cache drift', function () {
+    Auth::login(ownerForCustomer());
+    $c = Customer::create(['code' => Customer::generateCode(), 'name' => 'Drift',
+        'phone' => '081000000002', 'is_active' => true, 'total_spent' => 99999]); // drift sengaja
+
+    Sale::create([
+        'invoice_no' => 'INV-DRIFT-'.uniqid(),
+        'date' => now(),
+        'warehouse_id' => Warehouse::firstOrFail()->id,
+        'cashier_id' => Auth::id(),
+        'customer_id' => $c->id,
+        'subtotal' => 50000, 'discount_amount' => 0, 'tax_amount' => 0, 'total' => 50000,
+        'payment_status' => 'paid', 'status' => 'completed',
+    ]);
+
+    $controller = app(CustomerController::class);
+    $req = Request::create('', 'GET');
+    $req->setUserResolver(fn () => Auth::user());
+    $controller->show($req, $c);
+
+    // Cache di-reconcile ke real sum
+    expect((float) $c->fresh()->total_spent)->toBe(50000.0);
+});
+
+it('F3: total_spent auto-increment setelah sale committed lewat POS', function () {
+    Auth::login(ownerForCustomer());
+    $c = Customer::create(['code' => Customer::generateCode(), 'name' => 'Increment',
+        'phone' => '081000000003', 'is_active' => true, 'total_spent' => 0]);
+
+    $p = Product::where('sku', 'SKU-001')->firstOrFail();
+    $warehouse = Warehouse::firstOrFail();
+    Inventory::withoutGlobalScopes()->updateOrInsert(
+        ['product_id' => $p->id, 'warehouse_id' => $warehouse->id],
+        ['qty' => 100, 'cost_avg' => 5000, 'updated_at' => now(), 'created_at' => now()],
+    );
+    Product::where('id', $p->id)->update(['cost_avg' => 5000]);
+
+    $controller = app(CashierController::class);
+    $stock = new StockMovementService(new HppCalculator, new UnitConverter);
+
+    // 2 sale berturut-turut
+    foreach ([10000, 15000] as $amount) {
+        $req = Request::create('/pos/sales', 'POST', [
+            'warehouse_id' => $warehouse->id,
+            'customer_id' => $c->id,
+            'items' => [['product_id' => $p->id, 'unit_id' => $p->base_unit_id,
+                'qty' => 1, 'price' => $amount]],
+            'payment_method' => 'cash',
+            'amount_paid' => $amount,
+        ]);
+        $req->setUserResolver(fn () => Auth::user());
+        $controller->store($req, $stock, new JournalEngine,
+            new ServiceBundleService($stock, new UnitConverter), new VetlySyncService);
+    }
+
+    expect((float) $c->fresh()->total_spent)->toBe(25000.0); // 10rb + 15rb
+});
+
 it('OTORISASI: cashier role PUNYA customer.manage (untuk quick-create dari POS)', function () {
     $cashier = TenantUser::firstOrCreate(['email' => 'cashier-cust@vetly.id'], [
         'name' => 'Cashier C', 'password' => bcrypt('x'), 'is_active' => true,
