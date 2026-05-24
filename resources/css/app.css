@@ -58,4 +58,20 @@
         font-size: 16px;
         -webkit-tap-highlight-color: transparent;
     }
+
+    /*
+     * Hilangkan spinner ▲▼ bawaan browser di semua input[type=number].
+     * Operator kasir/opname ngetik qty manual via keyboard — spinner cuma
+     * jadi noise + bisa kepencet di mobile. Validasi numeric tetap aktif
+     * karena type=number nggak diubah.
+     */
+    input[type='number'] {
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+    input[type='number']::-webkit-inner-spin-button,
+    input[type='number']::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
 }
