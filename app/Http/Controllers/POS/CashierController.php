@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Tenant\AuditLog;
 use App\Models\Tenant\Inventory;
 use App\Models\Tenant\PendingStockMovement;
+use App\Models\Tenant\PriceTier;
 use App\Models\Tenant\Product;
+use App\Models\Tenant\ProductUnit;
 use App\Models\Tenant\Sale;
 use App\Models\Tenant\ServiceBundle;
 use App\Models\Tenant\StockOpname;
@@ -29,6 +31,11 @@ class CashierController extends Controller
     {
         return Inertia::render('POS/Cashier', [
             'warehouses' => Warehouse::where('is_active', true)->get(['id', 'code', 'name']),
+            // Tier list dipakai untuk dropdown header "Harga". Frontend
+            // auto-select tier default. Tier inaktif tetap dikirim supaya
+            // bisa muncul kalau owner sengaja aktifkan ulang mid-shift.
+            'tiers' => PriceTier::orderBy('sort_order')
+                ->get(['id', 'name', 'sort_order', 'is_default', 'is_active']),
         ]);
     }
 
@@ -36,7 +43,8 @@ class CashierController extends Controller
     {
         $product = Product::where('barcode', $barcode)
             ->orWhere('sku', $barcode)
-            ->with('units.unit')
+            ->orWhereHas('units', fn ($q) => $q->where('barcode_per_unit', $barcode))
+            ->with(['units.unit', 'units.prices'])
             ->first();
 
         if (! $product) {
@@ -46,9 +54,14 @@ class CashierController extends Controller
         $warehouseId = (int) $request->integer('warehouse_id');
         $check = $guard->canSell($product->id, $warehouseId, 1, null, $request->user());
 
+        // Append units[] dgn resolved prices per tier (fallback F2 sudah
+        // di-apply server-side, frontend cukup lookup `prices[tierId]`).
+        $productArr = $product->toArray();
+        $productArr['units'] = $this->resolveUnitsWithPrices($product->units);
+
         return response()->json([
             'found' => true,
-            'product' => $product,
+            'product' => $productArr,
             'stock' => $check,
         ]);
     }
@@ -73,9 +86,10 @@ class CashierController extends Controller
                     ->orWhere('sku', 'like', $like)
                     ->orWhere('barcode', 'like', $like);
             })
+            ->with(['units.unit', 'units.prices'])
             ->orderBy('name')
             ->limit(20)
-            ->get(['id', 'sku', 'barcode', 'name', 'type', 'price', 'base_unit_id']);
+            ->get();
 
         if ($products->isEmpty()) {
             return response()->json(['results' => []]);
@@ -106,6 +120,7 @@ class CashierController extends Controller
                 'base_unit_id' => $p->base_unit_id,
                 'stock_qty' => $isService ? null : (float) ($inventory[$p->id] ?? 0),
                 'is_service' => $isService,
+                'units' => $this->resolveUnitsWithPrices($p->units),
             ];
         });
 
@@ -122,6 +137,11 @@ class CashierController extends Controller
         $data = $request->validate([
             'warehouse_id' => ['required', 'integer'],
             'customer_id' => ['nullable', 'integer'],
+            // price_tier_id audit-only: harga ground truth tetap dari
+            // items.*.price (customer bayar apa yg tampil di invoice).
+            // Server tidak re-validate vs tier accessor — kasir bisa
+            // override price/diskon manual.
+            'price_tier_id' => ['nullable', 'integer', 'exists:price_tiers,id'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer'],
             'items.*.unit_id' => ['required', 'integer'],
@@ -155,6 +175,7 @@ class CashierController extends Controller
                 'warehouse_id' => $warehouse->id,
                 'cashier_id' => $request->user()->id,
                 'customer_id' => $data['customer_id'] ?? null,
+                'price_tier_id' => $data['price_tier_id'] ?? null,
                 'subtotal' => $subtotal,
                 'discount_amount' => $discount,
                 'tax_amount' => 0,
@@ -297,5 +318,37 @@ class CashierController extends Controller
         return response()->json([
             'escpos_payload' => base64_encode($printer->render($sale, $width === '80mm' ? '80mm' : '58mm')),
         ]);
+    }
+
+    /**
+     * Resolve harga per satuan per tier dgn fallback F2 sudah di-apply,
+     * lalu serialize ke shape ringan untuk frontend POS:
+     *   [{ id, unit_id, code, name, level, conversion_to_base,
+     *      prices: {tier_id: number, ...} }, ...]
+     *
+     * Output `prices` SELALU lengkap (semua tier punya angka) — frontend
+     * cukup lookup `prices[selectedTierId]` tanpa duplicate fallback logic.
+     */
+    private function resolveUnitsWithPrices($units): array
+    {
+        $tierIds = PriceTier::pluck('id')->all();
+
+        return $units->map(function (ProductUnit $u) use ($tierIds) {
+            $prices = [];
+            foreach ($tierIds as $tid) {
+                $prices[$tid] = $u->priceForTier((int) $tid);
+            }
+
+            return [
+                'id' => $u->id,
+                'unit_id' => $u->unit_id,
+                'code' => $u->unit?->code,
+                'name' => $u->unit?->name,
+                'level' => $u->level,
+                'conversion_to_base' => (float) $u->conversion_to_base,
+                'is_sale_unit' => (bool) $u->is_sale_unit,
+                'prices' => $prices,
+            ];
+        })->values()->all();
     }
 }

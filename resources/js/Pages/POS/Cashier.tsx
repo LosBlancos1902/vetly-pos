@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
@@ -12,13 +12,25 @@ import { rupiah } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
 import ProductSearchInput, { type SearchProduct } from './ProductSearchInput';
 
+interface UnitOption {
+    id: number;            // product_unit row id
+    unit_id: number;       // FK master_units.id
+    code: string;
+    name: string;
+    level: number;
+    conversion_to_base: number;
+    is_sale_unit: boolean;
+    prices: Record<string, number>; // tier_id (stringified) → price
+}
+
 interface CartLine {
     product_id: number;
-    unit_id: number;
+    unit_id: number;       // master_units.id (yg disubmit ke server)
     name: string;
     price: number;
     qty: number;
     type: string;
+    units: UnitOption[];   // semua satuan yg tersedia untuk produk ini
 }
 
 const SERVICE_TYPES = ['service', 'service_with_consumption'];
@@ -29,15 +41,48 @@ interface Warehouse {
     name: string;
 }
 
-export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
+interface PriceTier {
+    id: number;
+    name: string;
+    sort_order: number;
+    is_default: boolean;
+    is_active: boolean;
+}
+
+interface Props {
+    warehouses: Warehouse[];
+    tiers: PriceTier[];
+}
+
+/**
+ * Lookup harga dari units[] di cart line untuk tier+unit tertentu.
+ * Server sudah pre-resolve fallback F2, jadi prices map selalu lengkap.
+ */
+function priceFor(units: UnitOption[], unitId: number, tierId: number): number {
+    const u = units.find((x) => x.unit_id === unitId);
+    if (! u) return 0;
+    return u.prices[String(tierId)] ?? u.prices[Object.keys(u.prices)[0]] ?? 0;
+}
+
+export default function Cashier({ warehouses, tiers }: Props) {
     const [warehouseId, setWarehouseId] = useState<number>(warehouses[0]?.id ?? 0);
+    const defaultTier = useMemo(() => tiers.find((t) => t.is_default) ?? tiers[0], [tiers]);
+    const [tierId, setTierId] = useState<number>(defaultTier?.id ?? 0);
     const [cart, setCart] = useState<CartLine[]>([]);
     const [payOpen, setPayOpen] = useState(false);
 
     const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
 
-    // Resolve an identifier through the scan endpoint and add it to the cart.
-    // Routing every add through scan keeps StockGuard.canSell in the loop.
+    // Ganti tier global → semua cart line auto-re-price ke tier baru
+    // untuk SATUAN yg sedang dipilih per line.
+    function changeTier(newTierId: number) {
+        setTierId(newTierId);
+        setCart((c) => c.map((l) => ({
+            ...l,
+            price: priceFor(l.units, l.unit_id, newTierId),
+        })));
+    }
+
     async function lookupAndAdd(query: string): Promise<'added' | 'notfound' | 'error'> {
         try {
             const { data } = await axios.get(
@@ -52,8 +97,23 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                 if (!confirm(data.stock.message + '\nLanjutkan dengan override?')) return 'error';
             }
             const p = data.product;
+            const units: UnitOption[] = p.units ?? [];
+
+            // Pilih satuan default: base unit (level=1). Kalau scan hit
+            // barcode_per_unit yg spesifik level lain, sebaiknya pilih itu —
+            // tapi response saat ini cuma sediakan base_unit_id, jadi default
+            // ke base. Pakai fallback ke unit pertama kalau base tidak ada.
+            const baseUnit = units.find((u) => u.unit_id === p.base_unit_id)
+                ?? units[0];
+            const chosenUnitId = baseUnit?.unit_id ?? p.base_unit_id;
+            const resolvedPrice = baseUnit
+                ? priceFor(units, chosenUnitId, tierId)
+                : Number(p.price);
+
             setCart((c) => {
-                const i = c.findIndex((l) => l.product_id === p.id);
+                // Merge by (product_id, unit_id) — boleh ada line terpisah kalau
+                // user sengaja jual produk sama di unit beda.
+                const i = c.findIndex((l) => l.product_id === p.id && l.unit_id === chosenUnitId);
                 if (i >= 0) {
                     const copy = [...c];
                     copy[i] = { ...copy[i], qty: copy[i].qty + 1 };
@@ -63,11 +123,12 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                     ...c,
                     {
                         product_id: p.id,
-                        unit_id: p.base_unit_id,
+                        unit_id: chosenUnitId,
                         name: p.name,
-                        price: Number(p.price),
+                        price: resolvedPrice,
                         qty: 1,
                         type: p.type,
+                        units,
                     },
                 ];
             });
@@ -81,8 +142,6 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
         }
     }
 
-    // A live-search result was picked. It carries a real barcode/SKU; a 404
-    // here means the row vanished between search and click.
     async function addSearchResult(p: SearchProduct) {
         const result = await lookupAndAdd(p.barcode ?? p.sku);
         if (result === 'notfound') {
@@ -92,6 +151,13 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
 
     function setQty(idx: number, qty: number) {
         setCart((c) => c.map((l, i) => (i === idx ? { ...l, qty: Math.max(0.0001, qty) } : l)));
+    }
+
+    function changeLineUnit(idx: number, newUnitId: number) {
+        setCart((c) => c.map((l, i) => {
+            if (i !== idx) return l;
+            return { ...l, unit_id: newUnitId, price: priceFor(l.units, newUnitId, tierId) };
+        }));
     }
 
     function removeLine(idx: number) {
@@ -104,7 +170,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
 
             <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-3">
                 <div className="lg:col-span-2">
-                    <div className="mb-4 flex gap-2">
+                    <div className="mb-4 flex flex-wrap gap-2">
                         <select
                             value={warehouseId}
                             onChange={(e) => setWarehouseId(Number(e.target.value))}
@@ -116,6 +182,20 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                 </option>
                             ))}
                         </select>
+                        {tiers.length > 1 && (
+                            <select
+                                value={tierId}
+                                onChange={(e) => changeTier(Number(e.target.value))}
+                                className="min-h-touch rounded-md border border-input bg-background px-3 text-base"
+                                title="Tier harga"
+                            >
+                                {tiers.filter((t) => t.is_active).map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                        Tier: {t.name}{t.is_default ? ' (default)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                         <ProductSearchInput
                             warehouseId={warehouseId}
                             onSelectProduct={addSearchResult}
@@ -136,6 +216,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                     )}
                                     {cart.map((l, i) => {
                                         const isService = SERVICE_TYPES.includes(l.type);
+                                        const hasMultiUnit = l.units.length > 1;
                                         return (
                                         <tr key={i} className="border-b">
                                             <td className="p-3">
@@ -147,14 +228,30 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                                                         </Badge>
                                                     )}
                                                 </div>
-                                                <div className="text-sm text-muted-foreground">
-                                                    {rupiah(l.price)}
+                                                <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                                                    {hasMultiUnit ? (
+                                                        <select
+                                                            value={l.unit_id}
+                                                            onChange={(e) => changeLineUnit(i, Number(e.target.value))}
+                                                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                                                        >
+                                                            {l.units.map((u) => (
+                                                                <option key={u.unit_id} value={u.unit_id}>
+                                                                    {u.code}{u.level === 1 ? ' (base)' : ` × ${u.conversion_to_base}`}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span>{l.units[0]?.code ?? ''}</span>
+                                                    )}
+                                                    <span>·</span>
+                                                    <span>{rupiah(l.price)}</span>
                                                 </div>
                                             </td>
                                             <td className="p-3">
                                                 <Input
                                                     type="number"
-                                                    step="0.0001"
+                                                    step="0.01"
                                                     className="w-24"
                                                     value={l.qty}
                                                     onChange={(e) =>
@@ -212,6 +309,7 @@ export default function Cashier({ warehouses }: { warehouses: Warehouse[] }) {
                     try {
                         const { data } = await axios.post(route('pos.sales.store'), {
                             warehouse_id: warehouseId,
+                            price_tier_id: tierId || null,
                             items: cart.map((l) => ({
                                 product_id: l.product_id,
                                 unit_id: l.unit_id,
