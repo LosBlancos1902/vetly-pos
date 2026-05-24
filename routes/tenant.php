@@ -109,7 +109,11 @@ Route::middleware([
             ->only(['index', 'show', 'store', 'update', 'destroy'])
             ->middleware('can:customer.manage');
 
-        // Promo (engine + 5-dimensi). Fase 1 cuma TIPE_PERIODE enabled di UI.
+        // Promo (engine + 5-dimensi).
+        Route::post('/master/promos/{promo}/duplicate',
+            [\App\Http\Controllers\Master\PromoController::class, 'duplicate'])
+            ->name('master.promos.duplicate')
+            ->middleware('can:promo.manage');
         Route::resource('master/promos', \App\Http\Controllers\Master\PromoController::class)
             ->parameters(['promos' => 'promo'])
             ->names('master.promos')

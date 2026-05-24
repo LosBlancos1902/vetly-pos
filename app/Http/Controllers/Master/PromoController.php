@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Master;
 
 use App\Http\Controllers\Controller;
+use App\Models\Tenant\Category;
 use App\Models\Tenant\Coa;
+use App\Models\Tenant\Product;
 use App\Models\Tenant\Promo;
 use App\Models\Tenant\Warehouse;
 use Illuminate\Http\JsonResponse;
@@ -24,11 +26,26 @@ class PromoController extends Controller
     {
         $this->authorize('promo.manage');
 
+        // Definisi status (formal):
+        //   active   = is_active=true AND starts_at <= NOW <= ends_at
+        //   inactive = is_active=false OR ends_at < NOW (lewat periode)
+        //   upcoming = is_active=true AND starts_at > NOW
+        //   semua    = no filter
+        $now = now();
         $promos = Promo::query()
             ->with(['discountCoa:id,code,name', 'warehouses:id,name'])
             ->when($request->search, fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
-            ->when($request->status === 'active', fn ($q) => $q->where('is_active', true))
-            ->when($request->status === 'inactive', fn ($q) => $q->where('is_active', false))
+            ->when($request->status === 'active', fn ($q) => $q
+                ->where('is_active', true)
+                ->where('starts_at', '<=', $now)
+                ->where('ends_at', '>=', $now))
+            ->when($request->status === 'inactive', fn ($q) => $q
+                ->where(fn ($w) => $w
+                    ->where('is_active', false)
+                    ->orWhere('ends_at', '<', $now)))
+            ->when($request->status === 'upcoming', fn ($q) => $q
+                ->where('is_active', true)
+                ->where('starts_at', '>', $now))
             ->latest('id')
             ->paginate(20)
             ->withQueryString();
@@ -49,6 +66,12 @@ class PromoController extends Controller
                 ->get(['id', 'code', 'name', 'type']),
             'warehouses' => Warehouse::where('is_active', true)
                 ->orderBy('name')->get(['id', 'code', 'name']),
+            // Untuk Tipe 2 Per-Barang picker — semua produk aktif yg sellable
+            'products' => Product::where('is_active', true)
+                ->where('is_sellable_directly', true)
+                ->orderBy('name')->limit(500)->get(['id', 'sku', 'name', 'category_id']),
+            'categories' => Category::where('is_active', true)
+                ->orderBy('name')->get(['id', 'name']),
             'filters' => $request->only('search', 'status'),
         ]);
     }
@@ -75,6 +98,7 @@ class PromoController extends Controller
                 'min_purchase' => $data['min_purchase'] ?? 0,
                 'min_qty' => $data['min_qty'] ?? 0,
                 'quota_total' => $data['quota_total'] ?? null,
+                'config' => $this->buildConfig($data),
                 'is_active' => $data['is_active'] ?? true,
                 'created_by' => $request->user()->id,
             ]);
@@ -85,6 +109,33 @@ class PromoController extends Controller
         });
 
         return back()->with('success', "Promo '{$data['name']}' ditambahkan.");
+    }
+
+    /**
+     * Duplicate promo: replicate semua field + config + warehouse pivot.
+     * Override: name suffix "(copy)", is_active=false (owner aktifkan
+     * manual), quota_used reset 0. quota_total dipertahankan.
+     */
+    public function duplicate(Promo $promo): RedirectResponse
+    {
+        $this->authorize('promo.manage');
+
+        DB::transaction(function () use ($promo) {
+            $clone = $promo->replicate(['quota_used']);
+            $clone->name = $promo->name.' (copy)';
+            $clone->is_active = false;
+            $clone->quota_used = 0;
+            $clone->created_by = auth()->id();
+            $clone->save();
+
+            // Copy warehouse pivot juga (kalau ada)
+            $whIds = $promo->warehouses->pluck('id')->all();
+            if ($whIds !== []) {
+                $clone->warehouses()->sync($whIds);
+            }
+        });
+
+        return back()->with('success', "Promo '{$promo->name}' diduplikasi.");
     }
 
     public function update(Request $request, Promo $promo): RedirectResponse
@@ -109,6 +160,7 @@ class PromoController extends Controller
                 'min_purchase' => $data['min_purchase'] ?? 0,
                 'min_qty' => $data['min_qty'] ?? 0,
                 'quota_total' => $data['quota_total'] ?? null,
+                'config' => $this->buildConfig($data),
                 'is_active' => $data['is_active'] ?? $promo->is_active,
             ]);
 
@@ -139,13 +191,13 @@ class PromoController extends Controller
 
     private function validatePromo(Request $request, ?int $promoId = null): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'type' => ['required', Rule::in([
                 Promo::TYPE_PERIODE,
-                // 4 tipe lain di-disable di UI fase 1, tapi server tolerate
-                // (validasi lebih strict di strategy yg return false utk stub).
                 Promo::TYPE_PER_ITEM,
+                // 3 tipe lain di-disable di UI, server tetap accept (strategy
+                // stub return false → tidak pernah apply meski masuk DB).
                 Promo::TYPE_VOUCHER,
                 Promo::TYPE_BUNDLING,
                 Promo::TYPE_TEBUS_MURAH,
@@ -165,7 +217,39 @@ class PromoController extends Controller
             'quota_total' => ['nullable', 'integer', 'min:1'],
             'warehouse_ids' => ['nullable', 'array'],
             'warehouse_ids.*' => ['integer', 'exists:warehouses,id'],
+            // Tipe 2 per_item params
+            'product_ids' => ['nullable', 'array'],
+            'product_ids.*' => ['integer', 'exists:products,id'],
+            'category_ids' => ['nullable', 'array'],
+            'category_ids.*' => ['integer', 'exists:categories,id'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        // Tipe-specific validasi: per_item butuh minimal 1 product/category
+        if ($data['type'] === Promo::TYPE_PER_ITEM) {
+            $hasProducts = ! empty($data['product_ids']);
+            $hasCategories = ! empty($data['category_ids']);
+            if (! $hasProducts && ! $hasCategories) {
+                abort(422, 'Tipe Per-Barang wajib pilih minimal 1 produk atau 1 kategori.');
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Build config JSON dari validated payload. Per-tipe params disimpan
+     * di sini supaya schema promos cuma punya 1 JSON column.
+     */
+    private function buildConfig(array $data): ?array
+    {
+        if ($data['type'] !== Promo::TYPE_PER_ITEM) {
+            return null;
+        }
+
+        return [
+            'product_ids' => array_values(array_unique(array_map('intval', $data['product_ids'] ?? []))),
+            'category_ids' => array_values(array_unique(array_map('intval', $data['category_ids'] ?? []))),
+        ];
     }
 }

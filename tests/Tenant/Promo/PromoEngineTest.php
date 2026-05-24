@@ -495,6 +495,332 @@ it('INTEGRATION: sale TANPA promo aktif → tetap pakai postSplitSale (path lama
     expect(\App\Models\Tenant\PromoApplication::where('sale_id', $sale->id)->count())->toBe(0);
 });
 
+// ─── BAGIAN 0: CAP TEST EKSPLISIT (user spec) ───────────────────────────
+
+it('CAP: 50% × subtotal 250rb cap 10rb → exactly 10rb (min ke-apply)', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create([
+        'name' => 'Big Cap Test',
+        'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent',
+        'discount_value' => 50,
+        'max_discount_amount' => 10000,
+        'starts_at' => now()->subDay(),
+        'ends_at' => now()->addDay(),
+        'is_active' => true,
+    ]);
+
+    // 50% × 250rb = 125rb, tapi cap 10rb → harus 10rb
+    expect(app(PromoResolver::class)->resolve(makeCtx($w, 250000))->totalDiscount)
+        ->toBe(10000.0);
+});
+
+// ─── BAGIAN 1: PER-ITEM STRATEGY ────────────────────────────────────────
+
+function makeCartCtx(Warehouse $w, array $items): PromoContext
+{
+    $subtotal = 0;
+    $totalQty = 0;
+    foreach ($items as $i) {
+        $subtotal += (float) $i['qty'] * (float) $i['price'];
+        $totalQty += (float) $i['qty'];
+    }
+
+    return new PromoContext(
+        items: $items, warehouse: $w, customerId: null,
+        datetime: now(), subtotal: $subtotal, manualDiscount: 0,
+    );
+}
+
+it('PER-ITEM: match product_ids → diskon hanya item match', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+
+    Promo::create([
+        'name' => 'PI Product',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 10,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        'config' => ['product_ids' => [$p1->id], 'category_ids' => []],
+    ]);
+
+    $ctx = makeCartCtx($w, [
+        ['product_id' => $p1->id, 'unit_id' => 1, 'qty' => 2, 'price' => 10000], // 20rb match
+    ]);
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)
+        ->toBe(2000.0); // 10% × 20rb
+});
+
+it('PER-ITEM: match category_ids → diskon hanya item match', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+
+    Promo::create([
+        'name' => 'PI Category',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 20,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        'config' => ['product_ids' => [], 'category_ids' => [$p1->category_id]],
+    ]);
+
+    $ctx = makeCartCtx($w, [
+        ['product_id' => $p1->id, 'unit_id' => 1, 'qty' => 1, 'price' => 50000],
+    ]);
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)
+        ->toBe(10000.0); // 20% × 50rb
+});
+
+it('PER-ITEM: mix match+non-match → diskon HANYA item match', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    $p2 = Product::where('sku', 'SKU-002')->firstOrFail();
+
+    Promo::create([
+        'name' => 'PI Mix',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 10,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        'config' => ['product_ids' => [$p1->id]], // p2 SENGAJA tidak match
+    ]);
+
+    $ctx = makeCartCtx($w, [
+        ['product_id' => $p1->id, 'unit_id' => 1, 'qty' => 2, 'price' => 10000], // 20rb match
+        ['product_id' => $p2->id, 'unit_id' => 1, 'qty' => 1, 'price' => 50000], // 50rb NON-match
+    ]);
+    // Discount = 10% × 20rb = 2rb (BUKAN 7rb dari 10% × 70rb)
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)->toBe(2000.0);
+});
+
+it('PER-ITEM: % + cap PER ITEM (bukan total)', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    $p2 = Product::where('sku', 'SKU-002')->firstOrFail();
+
+    Promo::create([
+        'name' => 'PI Cap Per Item',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 50,
+        'max_discount_amount' => 5000, // cap PER ITEM 5rb
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        'config' => ['product_ids' => [$p1->id, $p2->id]],
+    ]);
+
+    $ctx = makeCartCtx($w, [
+        // line subtotal 20rb, 50% = 10rb, cap 5rb → 5rb
+        ['product_id' => $p1->id, 'unit_id' => 1, 'qty' => 2, 'price' => 10000],
+        // line subtotal 30rb, 50% = 15rb, cap 5rb → 5rb
+        ['product_id' => $p2->id, 'unit_id' => 1, 'qty' => 3, 'price' => 10000],
+    ]);
+    // Total = 5rb + 5rb = 10rb (cap per-item, BUKAN total cap 5rb)
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)->toBe(10000.0);
+});
+
+it('PER-ITEM: nominal clamp ke line subtotal kalau nominal > line', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+
+    Promo::create([
+        'name' => 'PI Nominal Clamp',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'nominal',
+        'discount_value' => 100000, // 100rb
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        'config' => ['product_ids' => [$p1->id]],
+    ]);
+
+    $ctx = makeCartCtx($w, [
+        // line subtotal 30rb, nominal 100rb → clamp ke 30rb
+        ['product_id' => $p1->id, 'unit_id' => 1, 'qty' => 3, 'price' => 10000],
+    ]);
+    expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)->toBe(30000.0);
+});
+
+it('PER-ITEM: no match di cart → NOT applicable (qualifies=false)', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    $p2 = Product::where('sku', 'SKU-002')->firstOrFail();
+
+    Promo::create([
+        'name' => 'PI No Match',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 10,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        'config' => ['product_ids' => [$p1->id]],
+    ]);
+
+    // Cart cuma p2 (tidak match)
+    $ctx = makeCartCtx($w, [
+        ['product_id' => $p2->id, 'unit_id' => 1, 'qty' => 1, 'price' => 50000],
+    ]);
+    expect(app(PromoResolver::class)->resolve($ctx)->applied)->toBe([]);
+});
+
+it('PER-ITEM INTEGRATION: end-to-end via CashierController, jurnal balance + HPP utuh', function () {
+    $w = Warehouse::firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    $p2 = Product::where('sku', 'SKU-002')->firstOrFail();
+
+    foreach ([$p1, $p2] as $p) {
+        \App\Models\Tenant\Inventory::withoutGlobalScopes()->updateOrInsert(
+            ['product_id' => $p->id, 'warehouse_id' => $w->id],
+            ['qty' => 100, 'cost_avg' => 3000, 'updated_at' => now(), 'created_at' => now()],
+        );
+        Product::where('id', $p->id)->update(['cost_avg' => 3000]);
+    }
+
+    Promo::create([
+        'name' => 'PI E2E',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 10,
+        'starts_at' => now()->subHour(), 'ends_at' => now()->addHour(),
+        'is_active' => true,
+        'config' => ['product_ids' => [$p1->id]],
+    ]);
+
+    $controller = app(\App\Http\Controllers\POS\CashierController::class);
+    $stock = new \App\Services\StockMovement(new \App\Services\HppCalculator, new \App\Services\UnitConverter);
+
+    $req = \Illuminate\Http\Request::create('/pos/sales', 'POST', [
+        'warehouse_id' => $w->id,
+        'items' => [
+            ['product_id' => $p1->id, 'unit_id' => $p1->base_unit_id, 'qty' => 2, 'price' => 10000], // 20rb match
+            ['product_id' => $p2->id, 'unit_id' => $p2->base_unit_id, 'qty' => 1, 'price' => 50000], // 50rb NON-match
+        ],
+        'payment_method' => 'cash',
+        'amount_paid' => 68000, // 70rb − 2rb diskon = 68rb
+    ]);
+    $req->setUserResolver(fn () => Auth::user());
+
+    $controller->store($req, $stock, app(\App\Services\JournalEngine::class),
+        new \App\Services\ServiceBundleService($stock, new \App\Services\UnitConverter),
+        new \App\Services\VetlySyncService);
+
+    $sale = Sale::latest('id')->firstOrFail();
+    expect((float) $sale->subtotal)->toBe(70000.0)
+        ->and((float) $sale->promo_discount_amount)->toBe(2000.0)
+        ->and((float) $sale->total)->toBe(68000.0);
+
+    // Journal balance + HPP entry tidak terpengaruh (3rb × 3 unit = 9rb)
+    $journal = Journal::where('ref_type', \App\Models\Tenant\Sale::class)
+        ->where('ref_id', $sale->id)->latest('id')->first();
+    $entries = $journal->entries()->with('coa')->get();
+    expect($entries->sum(fn ($e) => (float) $e->debit))
+        ->toBe($entries->sum(fn ($e) => (float) $e->credit));
+    $hpp = $entries->firstWhere(fn ($e) => $e->coa->code === '5100');
+    expect((float) $hpp->debit)->toBe(9000.0);
+});
+
+// ─── BAGIAN 2: DUPLICATE ────────────────────────────────────────────────
+
+it('DUPLICATE: replicate semua field + config + warehouse pivot, override name+is_active+quota_used', function () {
+    Auth::login(ownerForPromo());
+    $w = Warehouse::firstOrFail();
+    $other = Warehouse::firstOrCreate(['code' => 'WH-DUP-X'],
+        ['name' => 'Dup X', 'warehouse_type' => 'petshop', 'is_active' => true, 'address' => '-']);
+
+    $original = Promo::create([
+        'name' => 'Original',
+        'type' => Promo::TYPE_PER_ITEM,
+        'discount_kind' => 'percent',
+        'discount_value' => 15,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'quota_total' => 50,
+        'quota_used' => 17,
+        'is_active' => true,
+        'config' => ['product_ids' => [1, 2, 3]],
+    ]);
+    $original->warehouses()->attach([$w->id, $other->id]);
+
+    app(\App\Http\Controllers\Master\PromoController::class)->duplicate($original);
+
+    $clone = Promo::where('name', 'Original (copy)')->firstOrFail();
+    expect($clone->id)->not->toBe($original->id)
+        ->and($clone->type)->toBe(Promo::TYPE_PER_ITEM)
+        ->and((float) $clone->discount_value)->toBe(15.0)
+        ->and($clone->is_active)->toBeFalse()           // override
+        ->and($clone->quota_used)->toBe(0)              // override reset
+        ->and($clone->quota_total)->toBe(50)            // dipertahankan
+        ->and($clone->config['product_ids'])->toBe([1, 2, 3]); // config kebawa
+
+    // Warehouse pivot juga di-copy
+    expect($clone->warehouses()->pluck('warehouses.id')->sort()->values()->all())
+        ->toBe([$w->id, $other->id]);
+});
+
+// ─── BAGIAN 3: FILTER STATUS ────────────────────────────────────────────
+
+it('FILTER STATUS: active/inactive/upcoming → query results match definisi formal', function () {
+    Auth::login(ownerForPromo());
+
+    Promo::create([
+        'name' => 'Status Active',
+        'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 5,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+    ]);
+    Promo::create([
+        'name' => 'Status Upcoming',
+        'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 5,
+        'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(5),
+        'is_active' => true,
+    ]);
+    Promo::create([
+        'name' => 'Status Inactive Off',
+        'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 5,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => false,
+    ]);
+    Promo::create([
+        'name' => 'Status Inactive Expired',
+        'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 5,
+        'starts_at' => now()->subDays(10), 'ends_at' => now()->subDay(),
+        'is_active' => true,
+    ]);
+
+    $controller = app(\App\Http\Controllers\Master\PromoController::class);
+
+    // Active filter
+    $req = \Illuminate\Http\Request::create('', 'GET', ['status' => 'active']);
+    $req->setUserResolver(fn () => Auth::user());
+    $names = collect($controller->index($req)->toResponse(request())
+        ->getOriginalContent()->getData()['page']['props']['promos']['data'])
+        ->pluck('name')->filter(fn ($n) => str_starts_with($n, 'Status'))->values()->all();
+    expect($names)->toBe(['Status Active']);
+
+    // Upcoming filter
+    $req2 = \Illuminate\Http\Request::create('', 'GET', ['status' => 'upcoming']);
+    $req2->setUserResolver(fn () => Auth::user());
+    $names = collect($controller->index($req2)->toResponse(request())
+        ->getOriginalContent()->getData()['page']['props']['promos']['data'])
+        ->pluck('name')->filter(fn ($n) => str_starts_with($n, 'Status'))->values()->all();
+    expect($names)->toBe(['Status Upcoming']);
+
+    // Inactive filter — capture is_active=false ATAU expired (definisi formal)
+    $req3 = \Illuminate\Http\Request::create('', 'GET', ['status' => 'inactive']);
+    $req3->setUserResolver(fn () => Auth::user());
+    $names = collect($controller->index($req3)->toResponse(request())
+        ->getOriginalContent()->getData()['page']['props']['promos']['data'])
+        ->pluck('name')->filter(fn ($n) => str_starts_with($n, 'Status'))->values()->all();
+    sort($names);
+    expect($names)->toBe(['Status Inactive Expired', 'Status Inactive Off']);
+});
+
 it('REGRESSION: postSplitSale (tanpa promo) tetap balance + format sama', function () {
     $w = Warehouse::firstOrFail();
     $sale = Sale::create([

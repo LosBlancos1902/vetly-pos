@@ -48,11 +48,14 @@ interface Promo {
     quota_total: number | null;
     quota_used: number;
     is_active: boolean;
+    config: { product_ids?: number[]; category_ids?: number[] } | null;
     warehouses: Array<{ id: number; name: string }>;
 }
 
 interface Coa { id: number; code: string; name: string; type: string }
 interface Warehouse { id: number; code: string; name: string }
+interface ProductLite { id: number; sku: string; name: string; category_id: number | null }
+interface CategoryLite { id: number; name: string }
 interface Paginated<T> {
     data: T[];
     links: Array<{ url: string | null; label: string; active: boolean }>;
@@ -65,16 +68,20 @@ interface Props {
     promos: Paginated<Promo>;
     coas: Coa[];
     warehouses: Warehouse[];
-    filters: { search?: string; status?: 'active' | 'inactive' };
+    products: ProductLite[];
+    categories: CategoryLite[];
+    filters: { search?: string; status?: 'active' | 'inactive' | 'upcoming' };
 }
 
 const TYPE_LABEL: Record<PromoType, string> = {
     periode_discount: 'Diskon Periode',
-    per_item: 'Per-Barang (coming soon)',
+    per_item: 'Diskon Per-Barang',
     voucher: 'Kode Voucher (coming soon)',
     bundling: 'Bundling (coming soon)',
     tebus_murah: 'Tebus Murah (coming soon)',
 };
+
+const ENABLED_TYPES: PromoType[] = ['periode_discount', 'per_item'];
 
 const DAYS: { value: DayOfWeek; label: string }[] = [
     { value: 'mon', label: 'Sen' }, { value: 'tue', label: 'Sel' },
@@ -104,6 +111,9 @@ interface FormState {
     min_qty: string;
     quota_total: string;
     is_active: boolean;
+    product_ids: number[];   // tipe per_item
+    category_ids: number[];  // tipe per_item
+    product_search: string;  // local filter
 }
 
 function emptyForm(): FormState {
@@ -131,15 +141,18 @@ function emptyForm(): FormState {
         min_qty: '0',
         quota_total: '',
         is_active: true,
+        product_ids: [],
+        category_ids: [],
+        product_search: '',
     };
 }
 
-export default function Promos({ promos, coas, warehouses, filters }: Props) {
+export default function Promos({ promos, coas, warehouses, products, categories, filters }: Props) {
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState<FormState>(emptyForm());
     const [tab, setTab] = useState<'umum' | 'periode' | 'cabang' | 'akun' | 'syarat' | 'kuota'>('umum');
     const [search, setSearch] = useState(filters.search ?? '');
-    const [status, setStatus] = useState<'' | 'active' | 'inactive'>(filters.status ?? '');
+    const [status, setStatus] = useState<'' | 'active' | 'inactive' | 'upcoming'>(filters.status ?? '');
     const [submitting, setSubmitting] = useState(false);
     const isEdit = form.id !== undefined;
 
@@ -171,9 +184,39 @@ export default function Promos({ promos, coas, warehouses, filters }: Props) {
             min_qty: String(p.min_qty),
             quota_total: p.quota_total ? String(p.quota_total) : '',
             is_active: p.is_active,
+            product_ids: p.config?.product_ids ?? [],
+            category_ids: p.config?.category_ids ?? [],
+            product_search: '',
         });
         setTab('umum');
         setOpen(true);
+    }
+
+    function duplicate(p: Promo) {
+        if (! confirm(`Duplikat promo "${p.name}"? Salinan dibuat nonaktif dgn kuota direset 0.`)) return;
+        router.post(route('master.promos.duplicate', p.id), {}, {
+            preserveScroll: true,
+            onSuccess: () => toast.success(`Promo "${p.name}" diduplikasi`),
+            onError: (errs) => toast.error(Object.values(errs)[0] ?? 'Gagal'),
+        });
+    }
+
+    function toggleProduct(id: number) {
+        setForm((f) => ({
+            ...f,
+            product_ids: f.product_ids.includes(id)
+                ? f.product_ids.filter((x) => x !== id)
+                : [...f.product_ids, id],
+        }));
+    }
+
+    function toggleCategory(id: number) {
+        setForm((f) => ({
+            ...f,
+            category_ids: f.category_ids.includes(id)
+                ? f.category_ids.filter((x) => x !== id)
+                : [...f.category_ids, id],
+        }));
     }
 
     function toggleDay(d: DayOfWeek) {
@@ -215,6 +258,9 @@ export default function Promos({ promos, coas, warehouses, filters }: Props) {
             min_qty: Number(form.min_qty) || 0,
             quota_total: form.quota_total ? Number(form.quota_total) : null,
             is_active: form.is_active,
+            // Per-item params (server abaikan kalau type != per_item)
+            product_ids: form.type === 'per_item' ? form.product_ids : [],
+            category_ids: form.type === 'per_item' ? form.category_ids : [],
         };
 
         const opts = {
@@ -265,11 +311,12 @@ export default function Promos({ promos, coas, warehouses, filters }: Props) {
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Cari nama promo" className="w-72" />
                         <select value={status}
-                            onChange={(e) => setStatus(e.target.value as '' | 'active' | 'inactive')}
+                            onChange={(e) => setStatus(e.target.value as '' | 'active' | 'inactive' | 'upcoming')}
                             className="flex h-11 rounded-md border border-input bg-background px-3 text-sm">
                             <option value="">Semua</option>
                             <option value="active">Aktif</option>
-                            <option value="inactive">Nonaktif</option>
+                            <option value="upcoming">Akan Datang</option>
+                            <option value="inactive">Nonaktif / Lewat</option>
                         </select>
                         <Button type="submit" variant="outline">Cari</Button>
                     </form>
@@ -330,6 +377,9 @@ export default function Promos({ promos, coas, warehouses, filters }: Props) {
                                             <Button size="sm" variant="ghost" onClick={() => startEdit(p)}>
                                                 Edit
                                             </Button>
+                                            <Button size="sm" variant="ghost" onClick={() => duplicate(p)}>
+                                                Duplikat
+                                            </Button>
                                             <Button size="sm" variant="ghost" onClick={() => destroy(p)}>
                                                 {p.quota_used > 0 ? 'Nonaktif' : 'Hapus'}
                                             </Button>
@@ -386,13 +436,14 @@ export default function Promos({ promos, coas, warehouses, filters }: Props) {
                                         className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base">
                                         {Object.entries(TYPE_LABEL).map(([v, l]) => (
                                             <option key={v} value={v}
-                                                disabled={v !== 'periode_discount'}>
+                                                disabled={! ENABLED_TYPES.includes(v as PromoType)}>
                                                 {l}
                                             </option>
                                         ))}
                                     </select>
                                     <p className="mt-1 text-xs text-muted-foreground">
-                                        Fase 1: cuma <strong>Diskon Periode</strong> yg enabled. 4 tipe lain akan menyusul.
+                                        Fase ini: <strong>Diskon Periode</strong> (full transaksi) +
+                                        <strong> Per-Barang</strong> (item spesifik) enabled. 3 tipe lain menyusul.
                                     </p>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
@@ -430,6 +481,91 @@ export default function Promos({ promos, coas, warehouses, filters }: Props) {
                                             onChange={(e) => setForm({ ...form, max_discount_amount: e.target.value })} />
                                     </div>
                                 )}
+                                {form.type === 'per_item' && (
+                                    <div className="border-t pt-3 space-y-3">
+                                        <div>
+                                            <Label className="text-sm font-semibold">Berlaku untuk</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Pilih produk dan/atau kategori. Item match dapat diskon, item lain harga normal.
+                                                Minimal 1 dipilih.
+                                            </p>
+                                        </div>
+
+                                        {categories.length > 0 && (
+                                            <div>
+                                                <Label className="text-xs">Kategori (semua produk di dalamnya match)</Label>
+                                                <div className="flex flex-wrap gap-1 rounded-md border p-2">
+                                                    {categories.map((c) => (
+                                                        <button type="button" key={c.id}
+                                                            onClick={() => toggleCategory(c.id)}
+                                                            className={`rounded-md border px-2 py-1 text-xs ${
+                                                                form.category_ids.includes(c.id)
+                                                                    ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                                                                    : 'border-input hover:bg-muted/50'
+                                                            }`}>
+                                                            {c.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {form.category_ids.length > 0 && (
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        {form.category_ids.length} kategori dipilih
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div>
+                                            <Label className="text-xs">Produk spesifik</Label>
+                                            <Input
+                                                placeholder="Cari produk by nama / SKU"
+                                                value={form.product_search}
+                                                onChange={(e) => setForm({ ...form, product_search: e.target.value })}
+                                                className="mb-1"
+                                            />
+                                            <div className="max-h-48 overflow-y-auto rounded-md border p-2 space-y-0.5">
+                                                {products
+                                                    .filter((p) => {
+                                                        if (! form.product_search) return true;
+                                                        const t = form.product_search.toLowerCase();
+                                                        return p.name.toLowerCase().includes(t)
+                                                            || p.sku.toLowerCase().includes(t);
+                                                    })
+                                                    .slice(0, 50)
+                                                    .map((p) => (
+                                                        <label key={p.id} className="flex items-center gap-2 text-xs hover:bg-muted/30 rounded p-1">
+                                                            <input type="checkbox"
+                                                                checked={form.product_ids.includes(p.id)}
+                                                                onChange={() => toggleProduct(p.id)} />
+                                                            <span className="font-mono text-[10px] text-muted-foreground">{p.sku}</span>
+                                                            <span>{p.name}</span>
+                                                        </label>
+                                                    ))}
+                                                {products.filter((p) => {
+                                                    if (! form.product_search) return true;
+                                                    const t = form.product_search.toLowerCase();
+                                                    return p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t);
+                                                }).length > 50 && (
+                                                    <p className="text-[10px] text-muted-foreground">
+                                                        … lebih dari 50 hasil, refine pencarian.
+                                                    </p>
+                                                )}
+                                            </div>
+                                            {form.product_ids.length > 0 && (
+                                                <p className="mt-1 text-xs text-muted-foreground">
+                                                    {form.product_ids.length} produk dipilih
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        {form.discount_kind === 'percent' && form.max_discount_amount && (
+                                            <p className="text-xs text-amber-700">
+                                                ⓘ Cap diskon di-apply <strong>per item match</strong> (bukan total transaksi).
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
                                 <label className="flex items-center gap-2 text-sm">
                                     <input type="checkbox" checked={form.is_active}
                                         onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
