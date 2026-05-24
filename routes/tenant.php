@@ -90,6 +90,21 @@ Route::middleware([
             ->only(['index', 'store', 'update', 'destroy'])
             ->middleware('can:master.manage');
 
+        // Master pelanggan (CRM)
+        Route::get('/master/customers/search',
+            [\App\Http\Controllers\Master\CustomerController::class, 'search'])
+            ->name('master.customers.search')
+            ->middleware('can:customer.manage');
+        Route::post('/master/customers/quick-store',
+            [\App\Http\Controllers\Master\CustomerController::class, 'quickStore'])
+            ->name('master.customers.quick_store')
+            ->middleware('can:customer.manage');
+        Route::resource('master/customers', \App\Http\Controllers\Master\CustomerController::class)
+            ->parameters(['customers' => 'customer'])
+            ->names('master.customers')
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middleware('can:customer.manage');
+
         // Price tiers (multi-tier dinamis: Eceran/Grosir/Klinik/dll).
         // Tier default tidak bisa di-destroy (guard di controller).
         Route::post('/master/price-tiers', [\App\Http\Controllers\Master\PriceTierController::class, 'store'])

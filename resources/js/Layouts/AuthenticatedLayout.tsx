@@ -63,6 +63,12 @@ export default function Authenticated({
                     permission: 'master.manage',
                 },
                 {
+                    label: 'Pelanggan',
+                    href: route('master.customers.index'),
+                    routeMatch: 'master.customers.*',
+                    permission: 'customer.manage',
+                },
+                {
                     label: 'Racikan',
                     href: route('master.compounds.index'),
                     routeMatch: 'master.compounds.*',

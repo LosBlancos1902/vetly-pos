@@ -42,6 +42,8 @@ class DefaultRolesSeeder extends Seeder
         'accounting.journal.post',
         // Master data
         'master.manage',
+        'customer.manage',  // CRUD customer + quick-create dari POS
+                            // (cashier dapet by default, owner override)
         // Reports
         'reports.view',
         // Tenant settings
@@ -69,7 +71,7 @@ class DefaultRolesSeeder extends Seeder
             'purchasing.manage', 'purchasing.supplier_manage',
             'purchasing.pr_create', 'purchasing.pr_approve',
             'accounting.view', 'accounting.journal.post',
-            'master.manage', 'master.compounds', 'master.services',
+            'master.manage', 'master.compounds', 'master.services', 'customer.manage',
             'pharmacy.compound',
             'reports.view', 'settings.users', 'settings.roles',
             'warehouse.view_all',
@@ -79,7 +81,7 @@ class DefaultRolesSeeder extends Seeder
             // Klinik staff — racik & jual obat racikan + tindakan.
             // Permission yang dipakai sehari-hari oleh seorang apoteker:
             'pos.access', 'pos.sell', 'pos.shift.manage',
-            'master.compounds', 'master.services',
+            'master.compounds', 'master.services', 'customer.manage',
             'pharmacy.compound',
             'inventory.view',
             'purchasing.pr_create',
@@ -87,11 +89,13 @@ class DefaultRolesSeeder extends Seeder
         'supervisor' => [
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
             'inventory.view', 'inventory.adjustment', 'reports.view',
-            'purchasing.pr_create',
+            'purchasing.pr_create', 'customer.manage',
         ],
         'cashier' => [
             'pos.access', 'pos.sell', 'pos.shift.manage',
             'purchasing.pr_create',
+            // Quick-create customer dari POS saat transaksi — common workflow.
+            'customer.manage',
         ],
         'super_user' => [
             'pos.access', 'pos.sell', 'pos.sell.stock_minus', 'pos.sale.void',

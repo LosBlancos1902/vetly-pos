@@ -11,6 +11,7 @@ import { Badge } from '@/Components/ui/badge';
 import { rupiah } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
 import ProductSearchInput, { type SearchProduct } from './ProductSearchInput';
+import CustomerPicker, { type PickerCustomer } from './CustomerPicker';
 
 interface UnitOption {
     id: number;            // product_unit row id
@@ -68,6 +69,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
     const [warehouseId, setWarehouseId] = useState<number>(warehouses[0]?.id ?? 0);
     const defaultTier = useMemo(() => tiers.find((t) => t.is_default) ?? tiers[0], [tiers]);
     const [tierId, setTierId] = useState<number>(defaultTier?.id ?? 0);
+    const [customer, setCustomer] = useState<PickerCustomer | null>(null);
     const [cart, setCart] = useState<CartLine[]>([]);
     const [payOpen, setPayOpen] = useState(false);
 
@@ -175,32 +177,37 @@ export default function Cashier({ warehouses, tiers }: Props) {
 
             <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-3">
                 <div className="lg:col-span-2">
-                    <div className="mb-4 flex flex-wrap gap-2">
-                        <select
-                            value={warehouseId}
-                            onChange={(e) => setWarehouseId(Number(e.target.value))}
-                            className="min-h-touch rounded-md border border-input bg-background px-3 text-base"
-                        >
-                            {warehouses.map((w) => (
-                                <option key={w.id} value={w.id}>
-                                    {w.name}
-                                </option>
-                            ))}
-                        </select>
-                        {tiers.length > 1 && (
+                    <div className="mb-4 space-y-2">
+                        <div className="flex flex-wrap gap-2">
                             <select
-                                value={tierId}
-                                onChange={(e) => changeTier(Number(e.target.value))}
+                                value={warehouseId}
+                                onChange={(e) => setWarehouseId(Number(e.target.value))}
                                 className="min-h-touch rounded-md border border-input bg-background px-3 text-base"
-                                title="Tier harga"
                             >
-                                {tiers.filter((t) => t.is_active).map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                        Tier: {t.name}{t.is_default ? ' (default)' : ''}
+                                {warehouses.map((w) => (
+                                    <option key={w.id} value={w.id}>
+                                        {w.name}
                                     </option>
                                 ))}
                             </select>
-                        )}
+                            {tiers.length > 1 && (
+                                <select
+                                    value={tierId}
+                                    onChange={(e) => changeTier(Number(e.target.value))}
+                                    className="min-h-touch rounded-md border border-input bg-background px-3 text-base"
+                                    title="Tier harga"
+                                >
+                                    {tiers.filter((t) => t.is_active).map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                            Tier: {t.name}{t.is_default ? ' (default)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                            <div className="flex-1 min-w-[16rem]">
+                                <CustomerPicker selected={customer} onChange={setCustomer} />
+                            </div>
+                        </div>
                         <ProductSearchInput
                             warehouseId={warehouseId}
                             onSelectProduct={addSearchResult}
@@ -333,6 +340,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                         const { data } = await axios.post(route('pos.sales.store'), {
                             warehouse_id: warehouseId,
                             price_tier_id: tierId || null,
+                            customer_id: customer?.id ?? null,
                             items: cart.map((l) => ({
                                 product_id: l.product_id,
                                 unit_id: l.unit_id,
@@ -350,6 +358,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                 : ''),
                         );
                         setCart([]);
+                        setCustomer(null);
                         setPayOpen(false);
                         // ESC/POS payload ready: data.escpos_payload_58mm / _80mm
                         // -> printReceipt() from '@/lib/bluetoothPrinter'
