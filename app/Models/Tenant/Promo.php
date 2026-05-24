@@ -23,6 +23,7 @@ class Promo extends Model
         'quota_used' => 'integer',
         'config' => 'array',
         'is_active' => 'boolean',
+        'is_stackable' => 'boolean',
     ];
 
     public const TYPE_PERIODE = 'periode_discount';

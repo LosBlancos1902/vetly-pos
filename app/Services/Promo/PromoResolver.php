@@ -16,11 +16,19 @@ use App\Services\Promo\Strategies\VoucherStrategy;
  *   - preview() — display real-time di kasir (no DB write)
  *   - store()   — saat commit transaksi (DB write + lock kuota)
  *
- * Behavior: STACK ALL applicable promo (sum semua diskon). Owner control
- * via aktif/nonaktif + periode. Future flag is_stackable bisa nyusul.
+ * SELECTION LOGIC (bukan auto-sum-semua):
+ *   1. Compute candidate discount untuk SEMUA promo applicable
+ *   2. Partition: exclusive (is_stackable=false) vs stackable (true)
+ *   3. Dari pool EXCLUSIVE: pick HANYA SATU dgn amount terbesar
+ *      (tie-break: promo.id terkecil = first-created wins)
+ *   4. Total = chosenExclusive.amount + sum(stackable.amount)
+ *   5. Clamp total ≤ netSubtotal (safety: over-discount prevention)
+ *
+ * Apple-to-apple comparison: setiap strategy compute return Rp number
+ * final ke-customer. Compare langsung tanpa normalize per-tipe.
  *
  * Extensibility: tipe baru = tambah kelas implement PromoStrategy +
- * register di $registry. Tidak perlu ubah method resolve().
+ * register di $registry. Selection logic universal.
  */
 class PromoResolver
 {
@@ -47,13 +55,16 @@ class PromoResolver
             })
             ->get();
 
-        $applied = [];
-        $total = 0.0;
+        // ── Step 1-2: Build candidates (qualify + compute), partition ──
+        /** @var list<AppliedPromo> $exclusive */
+        $exclusive = [];
+        /** @var list<AppliedPromo> $stackable */
+        $stackable = [];
 
         foreach ($active as $promo) {
             $strategyClass = $this->registry[$promo->type] ?? null;
             if ($strategyClass === null) {
-                continue; // tipe unknown — skip silent
+                continue;
             }
             /** @var PromoStrategy $strategy */
             $strategy = app($strategyClass);
@@ -61,18 +72,61 @@ class PromoResolver
             if (! $strategy->qualifies($promo, $ctx)) {
                 continue;
             }
-
             $discount = $strategy->computeDiscount($promo, $ctx);
             if ($discount <= 0) {
                 continue;
             }
 
-            $applied[] = new AppliedPromo(
+            $candidate = new AppliedPromo(
                 promo: $promo,
                 amount: $discount,
                 coaCode: $promo->effectiveCoaCode(),
             );
-            $total += $discount;
+
+            if ($promo->is_stackable) {
+                $stackable[] = $candidate;
+            } else {
+                $exclusive[] = $candidate;
+            }
+        }
+
+        // ── Step 3: Pick 1 dari exclusive (max amount, tie-break ID kecil) ──
+        $chosenExclusive = null;
+        foreach ($exclusive as $cand) {
+            if ($chosenExclusive === null
+                || $cand->amount > $chosenExclusive->amount
+                || ($cand->amount === $chosenExclusive->amount
+                    && $cand->promo->id < $chosenExclusive->promo->id)
+            ) {
+                $chosenExclusive = $cand;
+            }
+        }
+
+        // ── Step 4: Bangun applied list + total ──
+        $applied = [];
+        $total = 0.0;
+
+        if ($chosenExclusive !== null) {
+            $applied[] = $chosenExclusive;
+            $total += $chosenExclusive->amount;
+        }
+        foreach ($stackable as $cand) {
+            $applied[] = $cand;
+            $total += $cand->amount;
+        }
+
+        // ── Step 5: Clamp ke netSubtotal (safety) ──
+        $netSubtotal = $ctx->netSubtotal();
+        if ($total > $netSubtotal && $netSubtotal >= 0) {
+            // Proportional scale down supaya audit trail (promo_applications)
+            // tetap konsisten dgn total final
+            $ratio = $netSubtotal / $total;
+            $applied = array_map(fn (AppliedPromo $a) => new AppliedPromo(
+                promo: $a->promo,
+                amount: round($a->amount * $ratio, 2),
+                coaCode: $a->coaCode,
+            ), $applied);
+            $total = $netSubtotal;
         }
 
         return new PromoResult(round($total, 2), $applied);

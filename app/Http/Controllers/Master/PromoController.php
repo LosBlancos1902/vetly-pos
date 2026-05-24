@@ -103,6 +103,7 @@ class PromoController extends Controller
                     ? ($data['voucher_code'] ?? null)
                     : null,
                 'is_active' => $data['is_active'] ?? true,
+                'is_stackable' => $data['is_stackable'] ?? false,
                 'created_by' => $request->user()->id,
             ]);
 
@@ -168,6 +169,7 @@ class PromoController extends Controller
                     ? ($data['voucher_code'] ?? null)
                     : null,
                 'is_active' => $data['is_active'] ?? $promo->is_active,
+                'is_stackable' => $data['is_stackable'] ?? $promo->is_stackable,
             ]);
 
             // sync warehouses ([] = semua cabang)
@@ -244,6 +246,7 @@ class PromoController extends Controller
             'voucher_code' => ['nullable', 'string', 'max:32',
                 'regex:/^[A-Z0-9_\-]+$/', $voucherUnique],
             'is_active' => ['nullable', 'boolean'],
+            'is_stackable' => ['nullable', 'boolean'],
         ]);
 
         // Tipe-specific validasi: per_item butuh minimal 1 product/category

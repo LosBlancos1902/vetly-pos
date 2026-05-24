@@ -272,19 +272,24 @@ it('COMPUTE: nominal > subtotal → di-clamp ke subtotal', function () {
     expect(app(PromoResolver::class)->resolve(makeCtx($w, 100000))->totalDiscount)->toBe(100000.0);
 });
 
-it('STACK ALL: 2 promo applicable → total = sum', function () {
+it('STACKABLE: 2 promo dgn is_stackable=true → total = sum (semantik baru)', function () {
+    // SEBELUM bug fix: 2 promo default auto-sum (15rb).
+    // SETELAH bug fix: default eksklusif → pick 1 terbesar (10rb saja).
+    // Test ini di-update jadi eksplisit set is_stackable=true → stack sum.
     $w = Warehouse::firstOrFail();
     Promo::create([
         'name' => 'A 10%', 'type' => Promo::TYPE_PERIODE,
         'discount_kind' => 'percent', 'discount_value' => 10,
         'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
         'is_active' => true,
+        'is_stackable' => true,
     ]);
     Promo::create([
         'name' => 'B 5k', 'type' => Promo::TYPE_PERIODE,
         'discount_kind' => 'nominal', 'discount_value' => 5000,
         'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
         'is_active' => true,
+        'is_stackable' => true,
     ]);
     // 10% × 100rb = 10rb + nominal 5rb = 15rb total
     $result = app(PromoResolver::class)->resolve(makeCtx($w, 100000));
@@ -1026,6 +1031,191 @@ it('VOUCHER REGRESSION: Tipe 1 (periode) jalan normal tanpa voucher_code di ctx'
         subtotal: 100000, manualDiscount: 0,
     );
     expect(app(PromoResolver::class)->resolve($ctx)->totalDiscount)->toBe(10000.0);
+});
+
+// ─── STACKING / SELECTION LOGIC (bug fix fondasi) ───────────────────────
+
+it('EXCLUSIVE: 3 promo eksklusif → pilih HANYA 1 dgn diskon terbesar', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create(['name' => 'Excl A 10rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+    Promo::create(['name' => 'Excl B 15rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 15000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+    Promo::create(['name' => 'Excl C 8rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 8000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+
+    $result = app(PromoResolver::class)->resolve(makeCtx($w, 100000));
+
+    expect($result->applied)->toHaveCount(1)
+        ->and($result->totalDiscount)->toBe(15000.0)
+        ->and($result->applied[0]->promo->name)->toBe('Excl B 15rb');
+});
+
+it('TIE-BREAK: 2 promo eksklusif amount sama → pilih ID terkecil (first-created)', function () {
+    $w = Warehouse::firstOrFail();
+    // ID kecil = first-created (created lebih dulu)
+    $first = Promo::create(['name' => 'First 10rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+    Promo::create(['name' => 'Second 10rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+
+    $result = app(PromoResolver::class)->resolve(makeCtx($w, 100000));
+
+    expect($result->applied)->toHaveCount(1)
+        ->and($result->applied[0]->promo->id)->toBe($first->id);
+});
+
+it('MIX: 1 eksklusif + 2 stackable → eksklusif + semua stackable numpuk', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create(['name' => 'Excl 10rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+    Promo::create(['name' => 'Stack A 3rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 3000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+    Promo::create(['name' => 'Stack B 2rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 2000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+
+    $result = app(PromoResolver::class)->resolve(makeCtx($w, 100000));
+
+    expect($result->applied)->toHaveCount(3)
+        ->and($result->totalDiscount)->toBe(15000.0); // 10rb + 3rb + 2rb
+});
+
+it('ONLY STACKABLE: cuma stackable applicable → sum semua tanpa eksklusif', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create(['name' => 'Stack X 5rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 5000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+    Promo::create(['name' => 'Stack Y 7rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 7000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+
+    $result = app(PromoResolver::class)->resolve(makeCtx($w, 100000));
+    expect($result->applied)->toHaveCount(2)
+        ->and($result->totalDiscount)->toBe(12000.0); // 5+7
+});
+
+it('VOUCHER stackable di atas exclusive periode → keduanya keapply', function () {
+    $w = Warehouse::firstOrFail();
+    Promo::create(['name' => 'Excl Periode 5%', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 5,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => false]);
+    Promo::create(['name' => 'Voucher Stack 10rb', 'type' => Promo::TYPE_VOUCHER,
+        'discount_kind' => 'nominal', 'discount_value' => 10000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'voucher_code' => 'STACKVOUCH',
+        'is_active' => true, 'is_stackable' => true]);
+
+    // Ctx dgn voucher → kedua promo applicable
+    $ctx = new PromoContext(
+        items: [['product_id' => 1, 'unit_id' => 1, 'qty' => 5, 'price' => 20000]],
+        warehouse: $w, customerId: null, datetime: now(),
+        subtotal: 100000, manualDiscount: 0,
+        voucherCode: 'STACKVOUCH',
+    );
+    $result = app(PromoResolver::class)->resolve($ctx);
+    expect($result->applied)->toHaveCount(2)
+        ->and($result->totalDiscount)->toBe(15000.0); // 5rb eksklusif + 10rb stackable
+});
+
+it('CLAMP: total > subtotal → di-clamp ke netSubtotal (anti over-discount)', function () {
+    $w = Warehouse::firstOrFail();
+    // 3 stackable yg sum > subtotal
+    Promo::create(['name' => 'S1 40rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 40000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+    Promo::create(['name' => 'S2 40rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 40000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+    Promo::create(['name' => 'S3 40rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 40000,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true, 'is_stackable' => true]);
+
+    // Subtotal 100rb, raw sum 120rb → clamp ke 100rb
+    $result = app(PromoResolver::class)->resolve(makeCtx($w, 100000));
+    expect($result->totalDiscount)->toBe(100000.0); // clamped
+});
+
+it('MIGRATION DEFAULT: promo baru tanpa is_stackable → default false (eksklusif)', function () {
+    $promo = Promo::create([
+        'name' => 'Test Default', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 5,
+        'starts_at' => now()->subDay(), 'ends_at' => now()->addDay(),
+        'is_active' => true,
+        // is_stackable SENGAJA tidak di-pass
+    ]);
+    // Refresh dari DB supaya default kolom ter-apply (Laravel tidak auto-fill
+    // default Schema saat Model::create kalau attribute tidak di-pass).
+    expect($promo->fresh()->is_stackable)->toBeFalse();
+});
+
+it('INTEGRATION e2e: 1 eksklusif + 1 stackable via CashierController, jurnal balance', function () {
+    $w = Warehouse::firstOrFail();
+    $p = Product::where('sku', 'SKU-001')->firstOrFail();
+    \App\Models\Tenant\Inventory::withoutGlobalScopes()->updateOrInsert(
+        ['product_id' => $p->id, 'warehouse_id' => $w->id],
+        ['qty' => 100, 'cost_avg' => 5000, 'updated_at' => now(), 'created_at' => now()],
+    );
+    Product::where('id', $p->id)->update(['cost_avg' => 5000]);
+
+    Promo::create(['name' => 'Excl 10%', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'percent', 'discount_value' => 10,
+        'starts_at' => now()->subHour(), 'ends_at' => now()->addHour(),
+        'is_active' => true, 'is_stackable' => false]);
+    Promo::create(['name' => 'Stack 2rb', 'type' => Promo::TYPE_PERIODE,
+        'discount_kind' => 'nominal', 'discount_value' => 2000,
+        'starts_at' => now()->subHour(), 'ends_at' => now()->addHour(),
+        'is_active' => true, 'is_stackable' => true]);
+
+    $controller = app(\App\Http\Controllers\POS\CashierController::class);
+    $stock = new \App\Services\StockMovement(new \App\Services\HppCalculator, new \App\Services\UnitConverter);
+
+    $req = \Illuminate\Http\Request::create('/pos/sales', 'POST', [
+        'warehouse_id' => $w->id,
+        'items' => [['product_id' => $p->id, 'unit_id' => $p->base_unit_id, 'qty' => 2, 'price' => 10000]],
+        'payment_method' => 'cash',
+        'amount_paid' => 18000, // 20rb − 2rb exclusive(10%) − 2rb stackable
+    ]);
+    $req->setUserResolver(fn () => Auth::user());
+    $controller->store($req, $stock, app(\App\Services\JournalEngine::class),
+        new \App\Services\ServiceBundleService($stock, new \App\Services\UnitConverter),
+        new \App\Services\VetlySyncService);
+
+    $sale = Sale::latest('id')->firstOrFail();
+    expect((float) $sale->promo_discount_amount)->toBe(4000.0) // 2 + 2
+        ->and((float) $sale->total)->toBe(16000.0);
+
+    // 2 promo_applications tercatat (1 eksklusif + 1 stackable)
+    $apps = \App\Models\Tenant\PromoApplication::where('sale_id', $sale->id)->get();
+    expect($apps)->toHaveCount(2);
+
+    // Journal balance utuh
+    $journal = Journal::where('ref_type', \App\Models\Tenant\Sale::class)
+        ->where('ref_id', $sale->id)->latest('id')->first();
+    $entries = $journal->entries()->with('coa')->get();
+    expect($entries->sum(fn ($e) => (float) $e->debit))
+        ->toBe($entries->sum(fn ($e) => (float) $e->credit));
 });
 
 it('REGRESSION: postSplitSale (tanpa promo) tetap balance + format sama', function () {

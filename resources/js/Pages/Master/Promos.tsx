@@ -48,6 +48,7 @@ interface Promo {
     quota_total: number | null;
     quota_used: number;
     is_active: boolean;
+    is_stackable: boolean;
     config: { product_ids?: number[]; category_ids?: number[] } | null;
     voucher_code: string | null;
     warehouses: Array<{ id: number; name: string }>;
@@ -112,6 +113,7 @@ interface FormState {
     min_qty: string;
     quota_total: string;
     is_active: boolean;
+    is_stackable: boolean;   // false = eksklusif (default, aman); true = numpuk
     product_ids: number[];   // tipe per_item
     category_ids: number[];  // tipe per_item
     product_search: string;  // local filter
@@ -143,6 +145,7 @@ function emptyForm(): FormState {
         min_qty: '0',
         quota_total: '',
         is_active: true,
+        is_stackable: false, // default eksklusif (aman bisnis)
         product_ids: [],
         category_ids: [],
         product_search: '',
@@ -187,6 +190,7 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             min_qty: String(p.min_qty),
             quota_total: p.quota_total ? String(p.quota_total) : '',
             is_active: p.is_active,
+            is_stackable: p.is_stackable,
             product_ids: p.config?.product_ids ?? [],
             category_ids: p.config?.category_ids ?? [],
             product_search: '',
@@ -262,6 +266,7 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             min_qty: Number(form.min_qty) || 0,
             quota_total: form.quota_total ? Number(form.quota_total) : null,
             is_active: form.is_active,
+            is_stackable: form.is_stackable,
             // Per-item params (server abaikan kalau type != per_item)
             product_ids: form.type === 'per_item' ? form.product_ids : [],
             category_ids: form.type === 'per_item' ? form.category_ids : [],
@@ -354,7 +359,12 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                                 {promos.data.map((p) => (
                                     <TableRow key={p.id}>
                                         <TableCell className="font-medium">
-                                            {p.name}
+                                            <div className="flex items-center gap-1">
+                                                {p.name}
+                                                {p.is_stackable && (
+                                                    <Badge variant="info" className="text-[10px]">stackable</Badge>
+                                                )}
+                                            </div>
                                             {p.voucher_code && (
                                                 <div className="font-mono text-[10px] text-sky-700">
                                                     kode: {p.voucher_code}
@@ -605,11 +615,28 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                                     </div>
                                 )}
 
-                                <label className="flex items-center gap-2 text-sm">
-                                    <input type="checkbox" checked={form.is_active}
-                                        onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-                                    Promo aktif
-                                </label>
+                                <div className="border-t pt-3 space-y-2">
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <input type="checkbox" checked={form.is_active}
+                                            onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+                                        Promo aktif
+                                    </label>
+                                    <label className="flex items-start gap-2 text-sm">
+                                        <input type="checkbox" checked={form.is_stackable}
+                                            onChange={(e) => setForm({ ...form, is_stackable: e.target.checked })}
+                                            className="mt-1" />
+                                        <div>
+                                            <div>Boleh digabung dgn promo lain (stackable)</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                Default <strong>OFF</strong> = eksklusif. Kalau pelanggan dapet
+                                                beberapa promo eksklusif sekaligus, kasir auto-pilih yg
+                                                <strong> diskonnya terbesar</strong> (tie-break: promo lebih lama
+                                                menang). <br />
+                                                <strong>ON</strong> = promo ini selalu numpuk di atas eksklusif terpilih.
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
                             </TabsContent>
 
                             <TabsContent value="periode" className="space-y-3">
