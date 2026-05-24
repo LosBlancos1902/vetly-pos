@@ -341,6 +341,9 @@ export default function Products({ products, categories, brands, units, tiers, f
                         <Button type="submit" variant="outline">Cari</Button>
                     </form>
                     <div className="flex gap-2">
+                        <Link href={route('master.products.import.show')}>
+                            <Button type="button" variant="outline">Import Excel</Button>
+                        </Link>
                         <Button type="button" variant="outline" onClick={() => setTierMgmtOpen(true)}>
                             Kelola Tier ({tiers.length})
                         </Button>

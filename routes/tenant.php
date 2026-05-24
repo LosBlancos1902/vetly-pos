@@ -61,7 +61,25 @@ Route::middleware([
             Route::post('/shifts/close', [ShiftController::class, 'close'])->name('shifts.close');
         });
 
-        // Master data
+        // Master data — Excel import (sebelum resource route products supaya
+        // tidak ke-shadow oleh /master/products/{product}).
+        Route::get('/master/products/import',
+            [\App\Http\Controllers\Master\ProductImportController::class, 'show'])
+            ->name('master.products.import.show')
+            ->middleware('can:master.manage');
+        Route::get('/master/products/import/template',
+            [\App\Http\Controllers\Master\ProductImportController::class, 'downloadTemplate'])
+            ->name('master.products.import.template')
+            ->middleware('can:master.manage');
+        Route::post('/master/products/import/preview',
+            [\App\Http\Controllers\Master\ProductImportController::class, 'preview'])
+            ->name('master.products.import.preview')
+            ->middleware('can:master.manage');
+        Route::post('/master/products/import/commit',
+            [\App\Http\Controllers\Master\ProductImportController::class, 'commit'])
+            ->name('master.products.import.commit')
+            ->middleware('can:master.manage');
+
         Route::resource('master/products', ProductController::class)
             ->names('master.products')
             ->only(['index', 'show', 'store', 'update', 'destroy']);
