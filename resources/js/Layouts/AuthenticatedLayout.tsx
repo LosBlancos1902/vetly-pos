@@ -69,6 +69,12 @@ export default function Authenticated({
                     permission: 'customer.manage',
                 },
                 {
+                    label: 'Promo',
+                    href: route('master.promos.index'),
+                    routeMatch: 'master.promos.*',
+                    permission: 'promo.manage',
+                },
+                {
                     label: 'Racikan',
                     href: route('master.compounds.index'),
                     routeMatch: 'master.compounds.*',

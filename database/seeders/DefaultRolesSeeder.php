@@ -44,6 +44,7 @@ class DefaultRolesSeeder extends Seeder
         'master.manage',
         'customer.manage',  // CRUD customer + quick-create dari POS
                             // (cashier dapet by default, owner override)
+        'promo.manage',     // CRUD promo (owner/manager only by default)
         // Reports
         'reports.view',
         // Tenant settings
@@ -72,6 +73,7 @@ class DefaultRolesSeeder extends Seeder
             'purchasing.pr_create', 'purchasing.pr_approve',
             'accounting.view', 'accounting.journal.post',
             'master.manage', 'master.compounds', 'master.services', 'customer.manage',
+            'promo.manage',
             'pharmacy.compound',
             'reports.view', 'settings.users', 'settings.roles',
             'warehouse.view_all',

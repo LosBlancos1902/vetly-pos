@@ -14,6 +14,8 @@ use App\Models\Tenant\ServiceBundle;
 use App\Models\Tenant\StockOpname;
 use App\Models\Tenant\Warehouse;
 use App\Services\JournalEngine;
+use App\Services\Promo\PromoContext;
+use App\Services\Promo\PromoResolver;
 use App\Services\ReceiptPrinter;
 use App\Services\ServiceBundleService;
 use App\Services\StockGuard;
@@ -127,13 +129,66 @@ class CashierController extends Controller
         return response()->json(['results' => $results]);
     }
 
+    /**
+     * Preview endpoint — resolve promo applicable utk cart snapshot
+     * SAAT INI tanpa nulis ke DB. Dipanggil dari Cashier.tsx live
+     * (debounced) supaya kasir lihat real-time diskon yg apply
+     * sebelum klik BAYAR.
+     */
+    public function promoPreview(Request $request, PromoResolver $resolver): JsonResponse
+    {
+        $data = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'customer_id' => ['nullable', 'integer'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.product_id' => ['required', 'integer'],
+            'items.*.unit_id' => ['required', 'integer'],
+            'items.*.qty' => ['required', 'numeric', 'min:0.0001'],
+            'items.*.price' => ['required', 'numeric', 'min:0'],
+            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $warehouse = Warehouse::findOrFail($data['warehouse_id']);
+        $subtotal = 0.0;
+        $manualDiscount = 0.0;
+        foreach ($data['items'] as $i) {
+            $subtotal += (float) $i['qty'] * (float) $i['price'];
+            $manualDiscount += (float) ($i['discount_amount'] ?? 0);
+        }
+
+        $result = $resolver->resolve(new PromoContext(
+            items: $data['items'],
+            warehouse: $warehouse,
+            customerId: $data['customer_id'] ?? null,
+            datetime: now(),
+            subtotal: $subtotal,
+            manualDiscount: $manualDiscount,
+        ));
+
+        return response()->json([
+            'total_discount' => $result->totalDiscount,
+            'applied' => array_map(fn ($a) => [
+                'id' => $a->promo->id,
+                'name' => $a->promo->name,
+                'amount' => $a->amount,
+                'coa_code' => $a->coaCode,
+            ], $result->applied),
+        ]);
+    }
+
     public function store(
         Request $request,
         StockMovement $stock,
         JournalEngine $journal,
         ServiceBundleService $serviceBundles,
         VetlySyncService $vetly,
+        ?PromoResolver $promoResolver = null,
     ): JsonResponse {
+        // Lazy-resolve untuk backward-compat dgn existing test helpers
+        // yg panggil store() dgn 5 arg (sebelum promo engine ada).
+        // Laravel DI tetap auto-inject saat dipanggil via routing.
+        $promoResolver ??= app(PromoResolver::class);
+
         $data = $request->validate([
             'warehouse_id' => ['required', 'integer'],
             'customer_id' => ['nullable', 'integer'],
@@ -170,7 +225,24 @@ class CashierController extends Controller
             $computedSubtotal += (float) $i['qty'] * (float) $i['price'];
             $computedDiscount += (float) ($i['discount_amount'] ?? 0);
         }
-        $computedTotal = $computedSubtotal - $computedDiscount;
+        $totalBeforePromo = $computedSubtotal - $computedDiscount;
+
+        // ── PROMO RESOLVE (server-side authoritative, anti-tamper) ───
+        // Client tidak boleh kirim discount_amount; resolver yg nentu.
+        // Quota habis di tengah race → strategi: tetap apply di sini,
+        // tapi di transaction loop lockForUpdate + re-check (kalau gugur,
+        // skip + flag di response).
+        $promoResult = $promoResolver->resolve(new PromoContext(
+            items: $data['items'],
+            warehouse: $warehouse,
+            customerId: $data['customer_id'] ?? null,
+            datetime: now(),
+            subtotal: $computedSubtotal,
+            manualDiscount: $computedDiscount,
+        ));
+        $promoDiscountInitial = $promoResult->totalDiscount;
+
+        $computedTotal = $totalBeforePromo - $promoDiscountInitial;
 
         // Resolve payment fields (prefer flat, fallback ke payments[0] untuk
         // backward compat existing test/client).
@@ -201,20 +273,50 @@ class CashierController extends Controller
 
         $changeAmount = max(0, $amountPaid - $computedTotal);
 
+        // Akan diisi di transaction kalau ada promo yg gugur di race.
+        $skippedPromos = [];
+
         $sale = DB::transaction(function () use (
             $data, $request, $warehouse, $stock, $journal, $serviceBundles,
             $computedSubtotal, $computedDiscount, $computedTotal,
             $paymentMethod, $amountPaid, $changeAmount,
+            $promoResult, &$skippedPromos,
         ) {
             // SO-frozen context: map [product_id => opname_id] untuk warehouse ini.
             // Kalau kosong (no active SO) → semua flow normal, zero deviation.
             // Kalau ada → produk yang lagi di-snap akan defer-ke-pending.
             $frozenContext = StockOpname::frozenContextFor($warehouse->id);
 
+            // ── PROMO commit-time re-check + quota lock ──────────────────
+            // Race-safe: lockForUpdate tiap promo, re-check quota.
+            // Promo yg gugur → skip (sale tetap jalan + warning di response).
+            $appliedFinal = [];
+            $promoDiscountFinal = 0.0;
+            foreach ($promoResult->applied as $a) {
+                $locked = \App\Models\Tenant\Promo::lockForUpdate()->find($a->promo->id);
+                if ($locked === null
+                    || ! $locked->is_active
+                    || ! $locked->hasQuotaLeft()
+                ) {
+                    $skippedPromos[] = ['id' => $a->promo->id, 'name' => $a->promo->name];
+
+                    continue;
+                }
+                $appliedFinal[] = $a;
+                $promoDiscountFinal += $a->amount;
+                $locked->increment('quota_used');
+            }
+            $promoDiscountFinal = round($promoDiscountFinal, 2);
+
+            // Total mungkin berubah kalau ada promo gugur — adjust sebelum
+            // create sale row supaya konsisten.
+            $totalAdjusted = $computedSubtotal - $computedDiscount - $promoDiscountFinal;
+            $changeAdjusted = max(0, $amountPaid - $totalAdjusted);
+
             // Alias supaya rest of function tidak berubah (avoid diff besar)
             $subtotal = $computedSubtotal;
             $discount = $computedDiscount;
-            $total = $computedTotal;
+            $total = $totalAdjusted;
 
             $sale = Sale::create([
                 'invoice_no' => 'INV-'.now()->format('YmdHis').'-'.random_int(100, 999),
@@ -227,14 +329,26 @@ class CashierController extends Controller
                     ? $paymentMethod
                     : null, // legacy 7-enum method ditolak masuk kolom flat (denorm cuma 3)
                 'amount_paid' => $amountPaid,
-                'change_amount' => $changeAmount,
+                'change_amount' => $changeAdjusted, // adjusted setelah promo gugur
                 'subtotal' => $subtotal,
                 'discount_amount' => $discount,
+                'promo_discount_amount' => $promoDiscountFinal,
                 'tax_amount' => 0,
                 'total' => $total,
                 'payment_status' => 'paid',
                 'status' => 'completed',
             ]);
+
+            // Insert audit row utk promo yg ke-apply.
+            foreach ($appliedFinal as $a) {
+                \App\Models\Tenant\PromoApplication::create([
+                    'promo_id' => $a->promo->id,
+                    'sale_id' => $sale->id,
+                    'discount_amount' => $a->amount,
+                    'coa_code' => $a->coaCode,
+                    'applied_at' => now(),
+                ]);
+            }
 
             // Aggregate per-portion totals so we can split the journal by
             // revenue stream (retail vs jasa).
@@ -340,17 +454,42 @@ class CashierController extends Controller
                 ]);
             }
 
-            // SELALU pakai postSplitSale supaya retailCogs eksplisit dipassing
-            // (excluding deferred items kalau ada SO aktif). postSale auto-sum
-            // dari sale.items → bocor kalau ada deferred.
-            $journal->postSplitSale(
-                sale: $sale->load('items'),
-                retailSubtotal: $retailSubtotal,
-                retailDiscount: $retailDiscount,
-                retailCogs: $retailCogs,
-                serviceSubtotal: $serviceSubtotal,
-                serviceCogs: $serviceCogs,
-            );
+            // SELALU pakai postSplitSale (atau ...WithPromo) supaya retailCogs
+            // eksplisit dipassing (excluding deferred items kalau ada SO aktif).
+            // postSale auto-sum dari sale.items → bocor kalau ada deferred.
+            //
+            // FORK: kalau ada promo → method baru WithPromo (extension method,
+            // existing postSplitSale 100% tidak disentuh). Kalau tanpa promo,
+            // path lama dipakai → behavior byte-identical dgn pre-promo.
+            if ($promoDiscountFinal > 0) {
+                // COA code dari promo pertama; kalau >1 promo dgn COA berbeda,
+                // pakai COA promo terbesar (heuristic — alternatif: split 1 baris
+                // per COA, tapi balance proof lebih rumit; fase 1 simpel).
+                $primaryCoa = collect($appliedFinal)
+                    ->sortByDesc('amount')
+                    ->first()
+                    ->coaCode ?? '4199';
+
+                $journal->postSplitSaleWithPromo(
+                    sale: $sale->load('items'),
+                    retailSubtotal: $retailSubtotal,
+                    retailDiscount: $retailDiscount,
+                    retailCogs: $retailCogs,
+                    serviceSubtotal: $serviceSubtotal,
+                    serviceCogs: $serviceCogs,
+                    promoDiscount: $promoDiscountFinal,
+                    promoCoaCode: $primaryCoa,
+                );
+            } else {
+                $journal->postSplitSale(
+                    sale: $sale->load('items'),
+                    retailSubtotal: $retailSubtotal,
+                    retailDiscount: $retailDiscount,
+                    retailCogs: $retailCogs,
+                    serviceSubtotal: $serviceSubtotal,
+                    serviceCogs: $serviceCogs,
+                );
+            }
 
             AuditLog::create([
                 'user_id' => $request->user()->id,
@@ -392,6 +531,9 @@ class CashierController extends Controller
             'sale' => $sale->load(['items', 'payments']),
             'escpos_payload_58mm' => base64_encode($printer->render($sale, '58mm')),
             'escpos_payload_80mm' => base64_encode($printer->render($sale, '80mm')),
+            // Flag utk frontend kalau ada promo yg gugur di race (kuota habis,
+            // dst). UI tampil warning "promo X tidak ke-apply karena ..."
+            'skipped_promos' => $skippedPromos,
         ]);
     }
 

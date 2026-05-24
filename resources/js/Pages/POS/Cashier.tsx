@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
@@ -65,6 +65,12 @@ function priceFor(units: UnitOption[], unitId: number, tierId: number): number {
     return u.prices[String(tierId)] ?? u.prices[Object.keys(u.prices)[0]] ?? 0;
 }
 
+interface AppliedPromoLite {
+    id: number;
+    name: string;
+    amount: number;
+}
+
 export default function Cashier({ warehouses, tiers }: Props) {
     const [warehouseId, setWarehouseId] = useState<number>(warehouses[0]?.id ?? 0);
     const defaultTier = useMemo(() => tiers.find((t) => t.is_default) ?? tiers[0], [tiers]);
@@ -72,8 +78,55 @@ export default function Cashier({ warehouses, tiers }: Props) {
     const [customer, setCustomer] = useState<PickerCustomer | null>(null);
     const [cart, setCart] = useState<CartLine[]>([]);
     const [payOpen, setPayOpen] = useState(false);
+    const [promoDiscount, setPromoDiscount] = useState(0);
+    const [appliedPromos, setAppliedPromos] = useState<AppliedPromoLite[]>([]);
+    const previewAbortRef = useRef<AbortController | null>(null);
 
-    const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
+    const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
+    const total = Math.max(0, subtotal - promoDiscount);
+
+    // Live preview debounced 300ms — reset kalau cart kosong.
+    useEffect(() => {
+        if (cart.length === 0) {
+            setPromoDiscount(0);
+            setAppliedPromos([]);
+
+            return;
+        }
+        const id = setTimeout(async () => {
+            // Cancel request sebelumnya kalau ada
+            previewAbortRef.current?.abort();
+            const ctrl = new AbortController();
+            previewAbortRef.current = ctrl;
+            try {
+                const { data } = await axios.post(
+                    route('pos.promo.preview'),
+                    {
+                        warehouse_id: warehouseId,
+                        customer_id: customer?.id ?? null,
+                        items: cart.map((l) => ({
+                            product_id: l.product_id,
+                            unit_id: l.unit_id,
+                            qty: l.qty,
+                            price: l.price,
+                            discount_amount: 0,
+                        })),
+                    },
+                    { signal: ctrl.signal },
+                );
+                setPromoDiscount(Number(data.total_discount) || 0);
+                setAppliedPromos(data.applied ?? []);
+            } catch (e) {
+                if (! axios.isCancel(e)) {
+                    // Silent fail — promo opsional, sale tetap bisa lanjut
+                    setPromoDiscount(0);
+                    setAppliedPromos([]);
+                }
+            }
+        }, 300);
+
+        return () => clearTimeout(id);
+    }, [cart, warehouseId, customer]);
 
     // Ganti tier global → semua cart line auto-re-price ke tier baru
     // untuk SATUAN yg sedang dipilih per line.
@@ -305,14 +358,28 @@ export default function Cashier({ warehouses, tiers }: Props) {
                 <div>
                     <Card>
                         <CardContent className="space-y-3 p-6">
-                            <div className="space-y-1 text-sm text-muted-foreground">
-                                <div className="flex justify-between">
+                            <div className="space-y-1 text-sm">
+                                <div className="flex justify-between text-muted-foreground">
                                     <span>Subtotal</span>
-                                    <span>{rupiah(total)}</span>
+                                    <span>{rupiah(subtotal)}</span>
                                 </div>
-                                <div className="flex justify-between text-xs">
-                                    <span>{cart.length} item · {cart.reduce((s, l) => s + l.qty, 0).toFixed(2)} qty</span>
+                                <div className="text-xs text-muted-foreground">
+                                    {cart.length} item · {cart.reduce((s, l) => s + l.qty, 0).toFixed(2)} qty
                                 </div>
+                                {promoDiscount > 0 && (
+                                    <>
+                                        <div className="flex justify-between text-green-700">
+                                            <span>Diskon promo</span>
+                                            <span>− {rupiah(promoDiscount)}</span>
+                                        </div>
+                                        {appliedPromos.map((p) => (
+                                            <div key={p.id} className="flex justify-between pl-3 text-[10px] text-muted-foreground">
+                                                <span>· {p.name}</span>
+                                                <span>{rupiah(p.amount)}</span>
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
                             </div>
                             <div className="flex justify-between border-t pt-3 text-lg">
                                 <span className="font-semibold">Total</span>
@@ -357,8 +424,15 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                 ? ` · kembalian ${rupiah(Number(data.sale.change_amount))}`
                                 : ''),
                         );
+                        // Warning kalau ada promo gugur di race (kuota habis dst).
+                        if (Array.isArray(data.skipped_promos) && data.skipped_promos.length > 0) {
+                            const names = data.skipped_promos.map((s: { name: string }) => s.name).join(', ');
+                            toast.warning(`Promo tidak terapply (kuota/status berubah): ${names}`);
+                        }
                         setCart([]);
                         setCustomer(null);
+                        setPromoDiscount(0);
+                        setAppliedPromos([]);
                         setPayOpen(false);
                         // ESC/POS payload ready: data.escpos_payload_58mm / _80mm
                         // -> printReceipt() from '@/lib/bluetoothPrinter'

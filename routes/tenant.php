@@ -57,6 +57,10 @@ Route::middleware([
             Route::get('/products/search', [CashierController::class, 'search'])->name('search');
             Route::post('/sales', [CashierController::class, 'store'])->name('sales.store');
             Route::get('/sales/{sale}/receipt', [CashierController::class, 'receipt'])->name('receipt');
+            // Live preview promo applicable utk cart snapshot — debounced
+            // dari Cashier.tsx, NO DB write.
+            Route::post('/promo/preview', [CashierController::class, 'promoPreview'])
+                ->name('promo.preview');
             Route::post('/shifts/open', [ShiftController::class, 'open'])->name('shifts.open');
             Route::post('/shifts/close', [ShiftController::class, 'close'])->name('shifts.close');
         });
@@ -104,6 +108,13 @@ Route::middleware([
             ->names('master.customers')
             ->only(['index', 'show', 'store', 'update', 'destroy'])
             ->middleware('can:customer.manage');
+
+        // Promo (engine + 5-dimensi). Fase 1 cuma TIPE_PERIODE enabled di UI.
+        Route::resource('master/promos', \App\Http\Controllers\Master\PromoController::class)
+            ->parameters(['promos' => 'promo'])
+            ->names('master.promos')
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middleware('can:promo.manage');
 
         // Price tiers (multi-tier dinamis: Eceran/Grosir/Klinik/dll).
         // Tier default tidak bisa di-destroy (guard di controller).
