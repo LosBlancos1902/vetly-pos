@@ -13,6 +13,8 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, rupiah } from '@/lib/utils';
 
+type ColorSlug = 'muted' | 'info' | 'success' | 'destructive' | 'warning' | 'secondary';
+
 interface Customer {
     id: number;
     code: string;
@@ -27,6 +29,7 @@ interface Customer {
     points: number;
     vetly_customer_id: string | null;
     created_at: string;
+    category?: { id: number; name: string; color: ColorSlug; icon: string | null } | null;
 }
 
 interface SaleRow {
@@ -90,6 +93,12 @@ export default function CustomerShow({ customer, sales, stats }: Props) {
                             <span className="font-mono text-sm text-muted-foreground">{customer.code}</span>
                             {! customer.is_active && (
                                 <Badge variant="muted">nonaktif</Badge>
+                            )}
+                            {customer.category && (
+                                <Badge variant={customer.category.color} className="gap-1">
+                                    {customer.category.icon && <span>{customer.category.icon}</span>}
+                                    {customer.category.name}
+                                </Badge>
                             )}
                             {customer.vetly_customer_id && (
                                 <Badge variant="info">linked Klinik</Badge>

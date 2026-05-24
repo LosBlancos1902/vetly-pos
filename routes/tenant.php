@@ -105,6 +105,12 @@ Route::middleware([
             ->only(['index', 'show', 'store', 'update', 'destroy'])
             ->middleware('can:customer.manage');
 
+        Route::resource('master/customer-categories', \App\Http\Controllers\Master\CustomerCategoryController::class)
+            ->parameters(['customer-categories' => 'category'])
+            ->names('master.customer_categories')
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middleware('can:customer.manage');
+
         // Price tiers (multi-tier dinamis: Eceran/Grosir/Klinik/dll).
         // Tier default tidak bisa di-destroy (guard di controller).
         Route::post('/master/price-tiers', [\App\Http\Controllers\Master\PriceTierController::class, 'store'])

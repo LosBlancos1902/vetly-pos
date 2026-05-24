@@ -21,6 +21,11 @@ class Customer extends Model
         return $this->hasMany(Sale::class);
     }
 
+    public function category(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(CustomerCategory::class, 'customer_category_id');
+    }
+
     /**
      * Generate unique customer code: CUS-YYYYMMDD-NNNN.
      * NNNN = nomor urut hari itu (4 digit, padded).

@@ -24,6 +24,15 @@ import {
 } from '@/Components/ui/table';
 import { rupiah } from '@/lib/utils';
 
+type ColorSlug = 'muted' | 'info' | 'success' | 'destructive' | 'warning' | 'secondary';
+
+interface CategoryLite {
+    id: number;
+    name: string;
+    color: ColorSlug;
+    icon: string | null;
+}
+
 interface Customer {
     id: number;
     code: string;
@@ -37,6 +46,8 @@ interface Customer {
     total_spent: string;
     sales_count: number;
     vetly_customer_id: string | null;
+    customer_category_id: number | null;
+    category?: CategoryLite | null;
 }
 
 interface Paginated {
@@ -49,7 +60,8 @@ interface Paginated {
 
 interface Props {
     customers: Paginated;
-    filters: { search?: string; status?: 'active' | 'inactive' };
+    categories: CategoryLite[];
+    filters: { search?: string; status?: 'active' | 'inactive'; category_id?: number };
 }
 
 interface FormState {
@@ -60,18 +72,23 @@ interface FormState {
     birthday: string;
     address: string;
     notes: string;
+    customer_category_id: string;
     is_active: boolean;
 }
 
 const EMPTY_FORM: FormState = {
-    name: '', phone: '', email: '', birthday: '', address: '', notes: '', is_active: true,
+    name: '', phone: '', email: '', birthday: '', address: '', notes: '',
+    customer_category_id: '', is_active: true,
 };
 
-export default function Customers({ customers, filters }: Props) {
+export default function Customers({ customers, categories, filters }: Props) {
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState<FormState>(EMPTY_FORM);
     const [search, setSearch] = useState(filters.search ?? '');
     const [status, setStatus] = useState<'' | 'active' | 'inactive'>(filters.status ?? '');
+    const [categoryFilter, setCategoryFilter] = useState<string>(
+        filters.category_id ? String(filters.category_id) : '',
+    );
     const [submitting, setSubmitting] = useState(false);
     const isEdit = form.id !== undefined;
 
@@ -89,6 +106,7 @@ export default function Customers({ customers, filters }: Props) {
             birthday: c.birthday ?? '',
             address: c.address ?? '',
             notes: c.notes ?? '',
+            customer_category_id: c.customer_category_id ? String(c.customer_category_id) : '',
             is_active: c.is_active,
         });
         setOpen(true);
@@ -105,6 +123,7 @@ export default function Customers({ customers, filters }: Props) {
             birthday: form.birthday || null,
             address: form.address.trim() || null,
             notes: form.notes.trim() || null,
+            customer_category_id: form.customer_category_id ? Number(form.customer_category_id) : null,
             is_active: form.is_active,
         };
 
@@ -142,7 +161,11 @@ export default function Customers({ customers, filters }: Props) {
     function doSearch(e: FormEvent) {
         e.preventDefault();
         router.get(route('master.customers.index'),
-            { search: search || undefined, status: status || undefined },
+            {
+                search: search || undefined,
+                status: status || undefined,
+                category_id: categoryFilter || undefined,
+            },
             { preserveState: true, preserveScroll: true });
     }
 
@@ -167,6 +190,18 @@ export default function Customers({ customers, filters }: Props) {
                             <option value="">Semua</option>
                             <option value="active">Aktif</option>
                             <option value="inactive">Nonaktif</option>
+                        </select>
+                        <select
+                            value={categoryFilter}
+                            onChange={(e) => setCategoryFilter(e.target.value)}
+                            className="flex h-11 rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                            <option value="">Semua kategori</option>
+                            {categories.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.icon ? `${c.icon} ` : ''}{c.name}
+                                </option>
+                            ))}
                         </select>
                         <Button type="submit" variant="outline">Cari</Button>
                     </form>
@@ -199,7 +234,15 @@ export default function Customers({ customers, filters }: Props) {
                                     <TableRow key={c.id}>
                                         <TableCell className="font-mono text-xs">{c.code}</TableCell>
                                         <TableCell>
-                                            <div className="font-medium">{c.name}</div>
+                                            <div className="flex items-center gap-1.5 font-medium">
+                                                {c.name}
+                                                {c.category && (
+                                                    <Badge variant={c.category.color} className="text-[10px] gap-0.5">
+                                                        {c.category.icon && <span>{c.category.icon}</span>}
+                                                        {c.category.name}
+                                                    </Badge>
+                                                )}
+                                            </div>
                                             {c.email && (
                                                 <div className="text-xs text-muted-foreground">{c.email}</div>
                                             )}
@@ -281,6 +324,25 @@ export default function Customers({ customers, filters }: Props) {
                                 <Label htmlFor="cu-bday">Tanggal Lahir</Label>
                                 <Input id="cu-bday" type="date" value={form.birthday}
                                     onChange={(e) => setForm({ ...form, birthday: e.target.value })} />
+                            </div>
+                            <div className="col-span-2">
+                                <Label htmlFor="cu-cat">Kategori</Label>
+                                <select id="cu-cat"
+                                    value={form.customer_category_id}
+                                    onChange={(e) => setForm({ ...form, customer_category_id: e.target.value })}
+                                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base">
+                                    <option value="">— tanpa kategori —</option>
+                                    {categories.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.icon ? `${c.icon} ` : ''}{c.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                {categories.length === 0 && (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Belum ada kategori. Bikin di <strong>Master Kategori Pelanggan</strong> dulu.
+                                    </p>
+                                )}
                             </div>
                             <div className="col-span-2">
                                 <Label htmlFor="cu-addr">Alamat</Label>

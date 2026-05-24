@@ -69,6 +69,12 @@ export default function Authenticated({
                     permission: 'customer.manage',
                 },
                 {
+                    label: 'Kategori Pelanggan',
+                    href: route('master.customer_categories.index'),
+                    routeMatch: 'master.customer_categories.*',
+                    permission: 'customer.manage',
+                },
+                {
                     label: 'Racikan',
                     href: route('master.compounds.index'),
                     routeMatch: 'master.compounds.*',

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Master;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Customer;
+use App\Models\Tenant\CustomerCategory;
 use App\Models\Tenant\Sale;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -31,6 +32,7 @@ class CustomerController extends Controller
         $this->authorize('customer.manage');
 
         $customers = Customer::query()
+            ->with(['category:id,name,color,icon'])
             ->when($request->search, fn ($q, $s) => $q->where(fn ($w) => $w
                 ->where('name', 'like', "%{$s}%")
                 ->orWhere('phone', 'like', "%{$s}%")
@@ -38,6 +40,7 @@ class CustomerController extends Controller
                 ->orWhere('code', 'like', "%{$s}%")))
             ->when($request->status === 'active', fn ($q) => $q->where('is_active', true))
             ->when($request->status === 'inactive', fn ($q) => $q->where('is_active', false))
+            ->when($request->category_id, fn ($q, $cid) => $q->where('customer_category_id', $cid))
             ->withCount('sales')
             ->orderBy('name')
             ->paginate(20)
@@ -45,7 +48,9 @@ class CustomerController extends Controller
 
         return Inertia::render('Master/Customers', [
             'customers' => $customers,
-            'filters' => $request->only('search', 'status'),
+            'categories' => CustomerCategory::where('is_active', true)
+                ->orderBy('name')->get(['id', 'name', 'color', 'icon']),
+            'filters' => $request->only('search', 'status', 'category_id'),
         ]);
     }
 
@@ -85,6 +90,8 @@ class CustomerController extends Controller
     public function show(Request $request, Customer $customer): Response
     {
         $this->authorize('customer.manage');
+
+        $customer->load('category:id,name,color,icon');
 
         $sales = Sale::query()
             ->where('customer_id', $customer->id)
@@ -186,6 +193,7 @@ class CustomerController extends Controller
             'birthday' => ['nullable', 'date'],
             'address' => ['nullable', 'string'],
             'notes' => ['nullable', 'string'],
+            'customer_category_id' => ['nullable', 'integer', 'exists:customer_categories,id'],
             'is_active' => ['nullable', 'boolean'],
         ]);
     }
