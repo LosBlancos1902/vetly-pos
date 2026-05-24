@@ -73,4 +73,22 @@ class Product extends Model
     {
         return $this->hasMany(Inventory::class);
     }
+
+    /**
+     * Convenience wrapper untuk caller yang punya productId tapi belum
+     * pegang instance ProductUnit. Delegasi sepenuhnya ke
+     * ProductUnit::priceForTier — single source of truth tetap di sana.
+     */
+    public function priceForTier(int $unitId, int $tierId): float
+    {
+        $unit = $this->units->firstWhere('unit_id', $unitId)
+            ?? $this->units()->where('unit_id', $unitId)->first();
+
+        if ($unit === null) {
+            // Unit tidak terdaftar di produk ini — fallback paling akhir.
+            return (float) $this->price;
+        }
+
+        return $unit->priceForTier($tierId);
+    }
 }
