@@ -22,7 +22,13 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/Components/ui/dialog';
-import { rupiah } from '@/lib/utils';
+import { formatQty, rupiah } from '@/lib/utils';
+
+// Threshold "salah ketik" untuk qty fisik. Di bawah ini hampir pasti
+// koma kepencet (mis. "1,2" jadi "0,12" dibaca Excel sebagai 0.12).
+// 0 tetap valid (= stok habis). DB sendiri masih DECIMAL(15,4); ini cuma
+// guard input layer untuk produk satuan utuh.
+const QTY_TYPO_THRESHOLD = 0.01;
 
 type Status = 'draft' | 'counting' | 'completed' | 'cancelled';
 
@@ -359,12 +365,12 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                {Number(r.qty_system)}
+                                                {formatQty(r.qty_system)}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <Input
                                                     type="number"
-                                                    step="0.0001"
+                                                    step="0.01"
                                                     min="0"
                                                     value={r.qty_physical}
                                                     onChange={(e) =>
@@ -372,7 +378,19 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                     }
                                                     className="w-28 text-right"
                                                     disabled={readOnly}
+                                                    aria-invalid={
+                                                        r.qty_physical !== '' &&
+                                                        Number(r.qty_physical) > 0 &&
+                                                        Number(r.qty_physical) < QTY_TYPO_THRESHOLD
+                                                    }
                                                 />
+                                                {r.qty_physical !== '' &&
+                                                    Number(r.qty_physical) > 0 &&
+                                                    Number(r.qty_physical) < QTY_TYPO_THRESHOLD && (
+                                                        <div className="mt-1 text-right text-xs text-red-700">
+                                                            angka sangat kecil — typo?
+                                                        </div>
+                                                    )}
                                             </TableCell>
                                             <TableCell className={`text-right ${
                                                 d === null
@@ -383,7 +401,11 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                         ? 'text-red-700'
                                                         : ''
                                             }`}>
-                                                {d === null ? '-' : d > 0 ? `+${d}` : d}
+                                                {d === null
+                                                    ? '-'
+                                                    : d > 0
+                                                      ? `+${formatQty(d)}`
+                                                      : formatQty(d)}
                                             </TableCell>
                                             <TableCell>
                                                 <Input
@@ -434,7 +456,7 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                 <span className="text-muted-foreground">Item dengan selisih</span>
                                                 <span className="font-semibold">
                                                     {hasDiff
-                                                        ? `${diffItems.length} item · total ${totalAbsDiff.toFixed(2)} qty`
+                                                        ? `${diffItems.length} item · total ${formatQty(totalAbsDiff)} qty`
                                                         : 'tidak ada'}
                                                 </span>
                                             </div>

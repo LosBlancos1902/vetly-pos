@@ -12,6 +12,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/Components/ui/table';
+import { formatQty } from '@/lib/utils';
 
 type Status = 'draft' | 'counting' | 'completed' | 'cancelled';
 
@@ -133,7 +134,7 @@ export default function StockOpnames({ opnames, filters }: Props) {
                                             <TableCell>{o.opname_date}</TableCell>
                                             <TableCell className="text-right">{o.items.length}</TableCell>
                                             <TableCell className="text-right">
-                                                {totalDiff > 0 ? totalDiff.toFixed(2) : '-'}
+                                                {totalDiff > 0 ? formatQty(totalDiff) : '-'}
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant={meta.variant}>{meta.label}</Badge>

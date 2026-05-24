@@ -586,3 +586,95 @@ it('Excel upload: parse xlsx → fill qty_physical via match SKU', function () {
         ->and((float) $item2->qty_diff)->toBe(0.0)
         ->and($opname->fresh()->status)->toBe('counting');
 });
+
+it('Excel upload: nilai 0 < qty < 0.01 di-skip + dilaporkan sebagai ambiguous (bukan dibuang diam-diam)', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail(); // qty valid
+    $p2 = Product::where('sku', 'SKU-002')->firstOrFail(); // qty ambiguous → skip
+    $p3 = Product::where('sku', 'SKU-003')->firstOrFail(); // qty = 0 (stok habis, valid)
+
+    setStock($p1->id, $warehouse->id, 100, 5000);
+    setStock($p2->id, $warehouse->id, 50, 2000);
+    setStock($p3->id, $warehouse->id, 30, 1000);
+
+    $opname = makeOpnameDraft($warehouse->id);
+
+    $ss = new Spreadsheet;
+    $sh = $ss->getActiveSheet();
+    $sh->setCellValue('A1', 'Kode');
+    $sh->setCellValue('B1', 'Nama Produk');
+    $sh->setCellValue('C1', 'Satuan');
+    $sh->setCellValue('D1', 'Qty Sistem');
+    $sh->setCellValue('E1', 'Qty Fisik');
+
+    $sh->setCellValue('A2', 'SKU-001');
+    $sh->setCellValue('E2', 97);          // valid → imported
+    $sh->setCellValue('A3', 'SKU-002');
+    $sh->setCellValue('E3', 0.0002);      // ambiguous → skipped + reported
+    $sh->setCellValue('A4', 'SKU-003');
+    $sh->setCellValue('E4', 0);           // valid (stok habis)
+
+    $tmpPath = tempnam(sys_get_temp_dir(), 'opname-amb-').'.xlsx';
+    (new Xlsx($ss))->save($tmpPath);
+
+    Auth::login(ownerForUpgrade());
+    $controller = app(StockOpnameController::class);
+    $req = Request::create('', 'POST');
+    $req->setUserResolver(fn () => Auth::user());
+    $req->files->set('file', new UploadedFile($tmpPath, 'opname.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        null, true));
+
+    $response = $controller->uploadExcel($req, $opname);
+
+    // p1 dan p3 ke-fill, p2 di-skip (qty_physical tetap null).
+    $item1 = $opname->items()->where('product_id', $p1->id)->first();
+    $item2 = $opname->items()->where('product_id', $p2->id)->first();
+    $item3 = $opname->items()->where('product_id', $p3->id)->first();
+
+    expect((float) $item1->qty_physical)->toBe(97.0)
+        ->and($item2->qty_physical)->toBeNull()                  // ambiguous SKIPPED
+        ->and((float) $item3->qty_physical)->toBe(0.0);          // 0 = stok habis, valid
+
+    // Flash message harus mention SKU yang di-skip (jangan silent).
+    $flash = session('success');
+    expect($flash)->toBeString()
+        ->and($flash)->toContain('SKU-002')
+        ->and($flash)->toContain('diabaikan')
+        ->and($flash)->toContain('typo');
+});
+
+it('Excel upload: file dengan SEMUA baris ambiguous tetap diabaikan tapi tidak crash', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    setStock($p1->id, $warehouse->id, 100, 5000);
+
+    $opname = makeOpnameDraft($warehouse->id);
+
+    $ss = new Spreadsheet;
+    $sh = $ss->getActiveSheet();
+    $sh->setCellValue('A1', 'Kode');
+    $sh->setCellValue('E1', 'Qty Fisik');
+    $sh->setCellValue('A2', 'SKU-001');
+    $sh->setCellValue('E2', 0.0002);
+
+    $tmpPath = tempnam(sys_get_temp_dir(), 'opname-all-amb-').'.xlsx';
+    (new Xlsx($ss))->save($tmpPath);
+
+    Auth::login(ownerForUpgrade());
+    $controller = app(StockOpnameController::class);
+    $req = Request::create('', 'POST');
+    $req->setUserResolver(fn () => Auth::user());
+    $req->files->set('file', new UploadedFile($tmpPath, 'opname.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        null, true));
+
+    $controller->uploadExcel($req, $opname);
+
+    $item = $opname->items()->where('product_id', $p1->id)->first();
+    expect($item->qty_physical)->toBeNull();
+
+    $flash = session('success');
+    expect($flash)->toContain('0 item terisi')
+        ->and($flash)->toContain('SKU-001');
+});

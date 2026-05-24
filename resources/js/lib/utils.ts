@@ -16,16 +16,21 @@ export function rupiah(value: number | string): string {
 }
 
 /**
- * Format a quantity string (e.g. "1500.0000") cleanly: up to 4 fractional
- * digits, trailing zeros dropped, id-ID locale (1.500 not 1,500).
+ * Format a quantity string (e.g. "1500.0000") cleanly: up to 2 fractional
+ * digits by default, trailing zeros dropped, id-ID locale (1.500 not 1,500).
+ *
+ * DB column is DECIMAL(15,4) by design (untuk resep racik yg butuh presisi
+ * tinggi), tapi stok display default 2 desimal — "0,0002 vial" hampir
+ * selalu typo, bukan reading yg valid. Pass `maxDigits` 4 kalau memang
+ * butuh tampilkan presisi penuh (mis. recipe component qty).
  */
-export function formatQty(value: number | string | null | undefined): string {
+export function formatQty(value: number | string | null | undefined, maxDigits = 2): string {
     if (value === null || value === undefined || value === '') return '0';
     const n = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(n)) return '0';
     return new Intl.NumberFormat('id-ID', {
         minimumFractionDigits: 0,
-        maximumFractionDigits: 4,
+        maximumFractionDigits: maxDigits,
     }).format(n);
 }
 

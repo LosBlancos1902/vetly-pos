@@ -3,7 +3,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { Input } from '@/Components/ui/input';
 import { Badge } from '@/Components/ui/badge';
-import { rupiah } from '@/lib/utils';
+import { formatQty, rupiah } from '@/lib/utils';
 
 export interface SearchProduct {
     id: number;
@@ -248,7 +248,7 @@ export default function ProductSearchInput({ warehouseId, onSelectProduct, onSca
                                                 <div className="text-xs text-muted-foreground">
                                                     {p.is_service
                                                         ? 'jasa'
-                                                        : `stok: ${p.stock_qty ?? 0}`}
+                                                        : `stok: ${formatQty(p.stock_qty)}`}
                                                 </div>
                                             </div>
                                         </button>

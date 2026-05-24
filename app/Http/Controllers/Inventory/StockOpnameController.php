@@ -23,6 +23,14 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
+ * Qty fisik di bawah threshold ini di-anggap typo (mis. "1,2" terbaca
+ * "0,12" / "0,002" karena format Excel) dan di-skip saat import. Tetap
+ * dilaporkan ke user supaya bisa diperbaiki manual. 0 sendiri tetap valid
+ * (= stok habis).
+ */
+const OPNAME_QTY_TYPO_THRESHOLD = 0.01;
+
+/**
  * Stock Opname (stock-take / opname fisik).
  *
  * Flow:
@@ -463,9 +471,12 @@ class StockOpnameController extends Controller
         }
         array_shift($rows);
 
-        // Build map [sku => qty_physical].
+        // Build map [sku => qty_physical]. Pisahkan ambiguous (typo-suspect)
+        // dari skip biasa, supaya bisa lapor balik ke user — bukan dibuang
+        // diam-diam (silent data loss).
         $bySku = [];
         $skipped = 0;
+        $ambiguous = []; // [['sku' => ..., 'qty' => ...], ...]
         foreach ($rows as $r) {
             $sku = isset($r[0]) ? trim((string) $r[0]) : '';
             $qty = $r[4] ?? null;
@@ -477,36 +488,52 @@ class StockOpnameController extends Controller
                 $skipped++;
                 continue;
             }
-            $bySku[$sku] = (float) $qty;
+            $qtyFloat = (float) $qty;
+            if ($qtyFloat > 0 && $qtyFloat < OPNAME_QTY_TYPO_THRESHOLD) {
+                $ambiguous[] = ['sku' => $sku, 'qty' => $qtyFloat];
+                continue;
+            }
+            $bySku[$sku] = $qtyFloat;
         }
 
-        if ($bySku === []) {
+        if ($bySku === [] && $ambiguous === []) {
             abort(422, 'Tidak ada baris dengan Qty Fisik yang valid.');
         }
 
         $opname->load('items.product:id,sku');
         $updated = 0;
-        DB::transaction(function () use ($opname, $bySku, &$updated) {
-            foreach ($opname->items as $item) {
-                $sku = $item->product->sku ?? null;
-                if ($sku && array_key_exists($sku, $bySku)) {
-                    $physical = $bySku[$sku];
-                    $diff = (float) bcsub((string) $physical, (string) $item->qty_system, 4);
-                    $item->update([
-                        'qty_physical' => $physical,
-                        'qty_diff' => $diff,
-                    ]);
-                    $updated++;
+        if ($bySku !== []) {
+            DB::transaction(function () use ($opname, $bySku, &$updated) {
+                foreach ($opname->items as $item) {
+                    $sku = $item->product->sku ?? null;
+                    if ($sku && array_key_exists($sku, $bySku)) {
+                        $physical = $bySku[$sku];
+                        $diff = (float) bcsub((string) $physical, (string) $item->qty_system, 4);
+                        $item->update([
+                            'qty_physical' => $physical,
+                            'qty_diff' => $diff,
+                        ]);
+                        $updated++;
+                    }
                 }
-            }
-            if ($opname->status === StockOpname::STATUS_DRAFT) {
-                $opname->update(['status' => StockOpname::STATUS_COUNTING]);
-            }
-        });
+                if ($opname->status === StockOpname::STATUS_DRAFT) {
+                    $opname->update(['status' => StockOpname::STATUS_COUNTING]);
+                }
+            });
+        }
 
         $msg = "Excel diimport: {$updated} item terisi";
         if ($skipped > 0) {
-            $msg .= " (skip {$skipped} baris kosong/invalid)";
+            $msg .= " · skip {$skipped} baris kosong/invalid";
+        }
+        if ($ambiguous !== []) {
+            $list = collect($ambiguous)
+                ->map(fn ($a) => "{$a['sku']} ({$a['qty']})")
+                ->take(5)
+                ->implode(', ');
+            $more = count($ambiguous) > 5 ? ' …' : '';
+            $msg .= ' · '.count($ambiguous).' baris diabaikan (qty < '
+                .OPNAME_QTY_TYPO_THRESHOLD.', kemungkinan typo): '.$list.$more;
         }
 
         return back()->with('success', $msg);
