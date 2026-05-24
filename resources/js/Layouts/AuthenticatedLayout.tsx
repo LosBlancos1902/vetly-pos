@@ -57,6 +57,12 @@ export default function Authenticated({
                     permission: 'master.manage',
                 },
                 {
+                    label: 'Kategori',
+                    href: route('master.categories.index'),
+                    routeMatch: 'master.categories.*',
+                    permission: 'master.manage',
+                },
+                {
                     label: 'Racikan',
                     href: route('master.compounds.index'),
                     routeMatch: 'master.compounds.*',
