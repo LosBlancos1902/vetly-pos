@@ -34,11 +34,18 @@ function callTierController(string $method, ?Request $request = null, ?PriceTier
 beforeEach(function () {
     (new DefaultRolesSeeder)->run();
     Cache::driver('array')->forget('price_tier:default_id');
-    PriceTier::where('is_default', false)->delete();
+    // Pastikan Eceran kembali jadi default (kalau test sebelumnya swap default).
+    PriceTier::query()->update(['is_default' => false]);
+    PriceTier::where('name', 'Eceran')->update(['is_default' => true]);
+    // Hapus tier extra (sisakan Eceran).
+    PriceTier::where('name', '!=', 'Eceran')->delete();
 });
 
 afterEach(function () {
-    PriceTier::where('is_default', false)->delete();
+    PriceTier::query()->update(['is_default' => false]);
+    PriceTier::updateOrCreate(['name' => 'Eceran'],
+        ['sort_order' => 1, 'is_default' => true, 'is_active' => true]);
+    PriceTier::where('name', '!=', 'Eceran')->delete();
     Cache::driver('array')->forget('price_tier:default_id');
 });
 

@@ -23,7 +23,11 @@ use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     Cache::driver('array')->forget('price_tier:default_id');
-    PriceTier::where('is_default', false)->delete(); // cascade ke prices
+    // Restore Eceran sebagai default + bersihkan tier extra.
+    PriceTier::query()->update(['is_default' => false]);
+    PriceTier::updateOrCreate(['name' => 'Eceran'],
+        ['sort_order' => 1, 'is_default' => true, 'is_active' => true]);
+    PriceTier::where('name', '!=', 'Eceran')->delete();
 
     $sku = 'TIER-FIXT-'.uniqid();
     $baseUnitId = MasterUnit::first()->id;
@@ -52,7 +56,10 @@ beforeEach(function () {
 afterEach(function () {
     // Cascade: product → product_units → product_unit_prices.
     $this->fixtureProduct?->delete();
-    PriceTier::where('is_default', false)->delete();
+    PriceTier::query()->update(['is_default' => false]);
+    PriceTier::updateOrCreate(['name' => 'Eceran'],
+        ['sort_order' => 1, 'is_default' => true, 'is_active' => true]);
+    PriceTier::where('name', '!=', 'Eceran')->delete();
     Cache::driver('array')->forget('price_tier:default_id');
 });
 

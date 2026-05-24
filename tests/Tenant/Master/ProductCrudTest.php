@@ -61,13 +61,19 @@ function callProductController(string $method, ?Request $request = null, ?Produc
 beforeEach(function () {
     (new DefaultRolesSeeder)->run();
     Cache::driver('array')->forget('price_tier:default_id');
-    PriceTier::where('is_default', false)->delete();
+    PriceTier::query()->update(['is_default' => false]);
+    PriceTier::updateOrCreate(['name' => 'Eceran'],
+        ['sort_order' => 1, 'is_default' => true, 'is_active' => true]);
+    PriceTier::where('name', '!=', 'Eceran')->delete();
     Product::where('sku', 'like', 'CRUD-TEST-%')->each(fn ($p) => $p->delete());
 });
 
 afterEach(function () {
     Product::where('sku', 'like', 'CRUD-TEST-%')->each(fn ($p) => $p->delete());
-    PriceTier::where('is_default', false)->delete();
+    PriceTier::query()->update(['is_default' => false]);
+    PriceTier::updateOrCreate(['name' => 'Eceran'],
+        ['sort_order' => 1, 'is_default' => true, 'is_active' => true]);
+    PriceTier::where('name', '!=', 'Eceran')->delete();
     Cache::driver('array')->forget('price_tier:default_id');
 });
 
@@ -338,6 +344,53 @@ it('VALIDASI: ditolak kalau category_id kosong (required, beda dari schema nulla
     ]);
 
     expect(fn () => callProductController('store', $req))->toThrow(ValidationException::class);
+});
+
+it('index() expose tiers prop ke Inertia response (F4 frontend bisa baca)', function () {
+    Auth::login(ownerForProductCrud());
+    PriceTier::create(['name' => 'Grosir', 'sort_order' => 2, 'is_default' => false]);
+
+    /** @var \Inertia\Response $response */
+    $response = callProductController('index');
+
+    $props = $response->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+
+    $tierNames = collect($props['tiers'])->pluck('name')->all();
+    expect($props)->toHaveKeys(['products', 'categories', 'brands', 'units', 'tiers'])
+        ->and($tierNames)->toContain('Eceran')
+        ->and($tierNames)->toContain('Grosir')
+        ->and(collect($props['tiers'])->where('is_default', true)->count())->toBe(1);
+});
+
+it('show() return JSON dgn units + prices nested untuk modal edit', function () {
+    Auth::login(ownerForProductCrud());
+    $defaultId = defaultTierIdForCrud();
+    $catId = \App\Models\Tenant\Category::firstOrCreate(['name' => 'Test Cat'])->id;
+
+    $req = Request::create('/master/products', 'POST', [
+        'sku' => 'CRUD-TEST-SHOW',
+        'name' => 'Show Test',
+        'category_id' => $catId,
+        'type' => Product::TYPE_SALEABLE_RETAIL,
+        'units' => [
+            ['unit_id' => pcsUnitId(), 'level' => 1, 'conversion_to_base' => 1, 'prices' => [
+                ['price_tier_id' => $defaultId, 'price' => 2500],
+            ]],
+        ],
+    ]);
+    callProductController('store', $req);
+
+    $product = Product::where('sku', 'CRUD-TEST-SHOW')->firstOrFail();
+
+    /** @var \Illuminate\Http\JsonResponse $response */
+    $response = callProductController('show', product: $product);
+    $body = json_decode($response->getContent(), true);
+
+    expect($body)->toHaveKey('product')
+        ->and($body['product']['sku'])->toBe('CRUD-TEST-SHOW')
+        ->and($body['product']['units'])->toHaveCount(1)
+        ->and($body['product']['units'][0]['prices'])->toHaveCount(1)
+        ->and((float) $body['product']['units'][0]['prices'][0]['price'])->toBe(2500.0);
 });
 
 it('OTORISASI: user tanpa master.manage ditolak', function () {
