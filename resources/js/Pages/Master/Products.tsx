@@ -24,7 +24,7 @@ import {
     TableRow,
 } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { formatQty, rupiah } from '@/lib/utils';
+import { formatQty, rupiah, inputMoney, inputQty } from '@/lib/utils';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -185,13 +185,13 @@ export default function Products({ products, categories, brands, units, tiers, f
                     key: uid(),
                     unit_id: u.unit_id,
                     level: u.level,
-                    conversion_to_base: u.conversion_to_base,
+                    conversion_to_base: inputQty(u.conversion_to_base),
                     barcode_per_unit: u.barcode_per_unit ?? '',
                     prices: tiers.map((t) => {
                         const existing = u.prices.find((p) => p.price_tier_id === t.id);
                         return {
                             price_tier_id: t.id,
-                            price: existing ? existing.price : '',
+                            price: existing ? inputMoney(existing.price) : '',
                         };
                     }),
                 }));
@@ -205,7 +205,7 @@ export default function Products({ products, categories, brands, units, tiers, f
                 category_id: String(d.category_id ?? ''),
                 brand_id: d.brand_id ? String(d.brand_id) : '',
                 type: d.type,
-                min_stock: d.min_stock ?? '0',
+                min_stock: inputQty(d.min_stock ?? '0'),
                 is_active: d.is_active,
                 units: unitRows,
             });

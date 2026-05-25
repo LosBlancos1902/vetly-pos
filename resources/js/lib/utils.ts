@@ -34,6 +34,31 @@ export function formatQty(value: number | string | null | undefined, maxDigits =
     }).format(n);
 }
 
+/**
+ * Money for an <input type="number"> field: strip ALL decimals.
+ * DB column tetap DECIMAL(15,2/4) presisi penuh — ini cuma tampilan input.
+ * "10000.0000" → "10000", "12500.50" → "12501" (rounded).
+ * Rupiah jarang banget butuh sub-rupiah di UI; bulatan hanya di display layer.
+ */
+export function inputMoney(value: number | string | null | undefined): string {
+    if (value === null || value === undefined || value === '') return '';
+    const n = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(n)) return '';
+    return Math.round(n).toString();
+}
+
+/**
+ * Qty/ratio for an <input type="number"> field: strip TRAILING zeros, keep precision.
+ * "10.0000" → "10", "0.0300" → "0.03", "1.5000" → "1.5". Max 4 fractional digits
+ * (matches DECIMAL(15,4) DB precision). Pakai untuk qty, rasio konversi, percent.
+ */
+export function inputQty(value: number | string | null | undefined): string {
+    if (value === null || value === undefined || value === '') return '';
+    const n = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(n)) return '';
+    return parseFloat(n.toFixed(4)).toString();
+}
+
 /** Format an ISO/datetime string as Indonesian datetime: "20 Mei 2026 14:30". */
 export function formatDateID(value: string | Date | null | undefined): string {
     if (!value) return '-';

@@ -8,7 +8,7 @@ import { Input } from '@/Components/ui/input';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Table } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
-import { rupiah } from '@/lib/utils';
+import { rupiah, inputMoney, inputQty } from '@/lib/utils';
 import PaymentDialog from './PaymentDialog';
 import ProductSearchInput, { type SearchProduct } from './ProductSearchInput';
 import CustomerPicker, { type PickerCustomer } from './CustomerPicker';
@@ -351,7 +351,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                                         type="number"
                                                         step="0.01"
                                                         min="0"
-                                                        value={l.price}
+                                                        value={inputMoney(l.price)}
                                                         onChange={(e) => setPrice(i, Number(e.target.value))}
                                                         className="h-8 w-28 text-right text-xs"
                                                         title="Harga per unit (boleh override)"
@@ -364,7 +364,7 @@ export default function Cashier({ warehouses, tiers }: Props) {
                                                     type="number"
                                                     step="0.01"
                                                     className="w-24"
-                                                    value={l.qty}
+                                                    value={inputQty(l.qty)}
                                                     onChange={(e) =>
                                                         setQty(i, Number(e.target.value))
                                                     }

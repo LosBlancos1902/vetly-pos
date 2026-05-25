@@ -23,7 +23,7 @@ import {
     TableRow,
 } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { rupiah } from '@/lib/utils';
+import { rupiah, inputMoney, inputQty } from '@/lib/utils';
 
 type PromoType = 'periode_discount' | 'per_item' | 'voucher' | 'bundling' | 'tebus_murah';
 type DiscountKind = 'percent' | 'nominal';
@@ -174,8 +174,8 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             name: p.name,
             type: p.type,
             discount_kind: p.discount_kind,
-            discount_value: String(p.discount_value),
-            max_discount_amount: p.max_discount_amount ? String(p.max_discount_amount) : '',
+            discount_value: inputQty(p.discount_value),
+            max_discount_amount: p.max_discount_amount ? inputMoney(p.max_discount_amount) : '',
             starts_at: p.starts_at.slice(0, 16),
             ends_at: p.ends_at.slice(0, 16),
             use_days: (p.days_of_week ?? []).length > 0,
@@ -186,7 +186,7 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             use_specific_warehouses: p.warehouses.length > 0,
             warehouse_ids: p.warehouses.map((w) => w.id),
             discount_coa_id: p.discount_coa_id ? String(p.discount_coa_id) : '',
-            min_purchase: String(p.min_purchase),
+            min_purchase: inputMoney(p.min_purchase),
             min_qty: String(p.min_qty),
             quota_total: p.quota_total ? String(p.quota_total) : '',
             is_active: p.is_active,
