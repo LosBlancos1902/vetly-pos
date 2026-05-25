@@ -137,6 +137,59 @@ class JournalEngine
     }
 
     /**
+     * Mixed retail+service sale WITH PROMO. Superset dari postSplitSale —
+     * existing method 100% intact, ini extension yg dipanggil HANYA kalau
+     * ada promo aktif di transaksi (Cashier.store fork berdasarkan
+     * PromoResult).
+     *
+     * Lines yg ditambah dibanding postSplitSale:
+     *   D <promoCoaCode> = $promoDiscount   (mis. 4199 atau 4198 sub-account)
+     *   1101 Kas berkurang sebesar $promoDiscount (krn customer bayar lebih kecil)
+     *
+     * Balance proof:
+     *   cash = retailSubtotal − retailDiscount − promoDiscount + serviceSubtotal + tax
+     *   Debit  = cash + retailDiscount + promoDiscount + retailCogs + serviceCogs
+     *          = retailSubtotal + serviceSubtotal + tax + retailCogs + serviceCogs
+     *   Credit = retailSubtotal + serviceSubtotal + tax + retailCogs + serviceCogs ✓
+     *
+     * HPP TIDAK terpengaruh: retailCogs/serviceCogs di-pass dari caller,
+     * dihitung dari cost_snapshot × qty (independent dari promo).
+     */
+    public function postSplitSaleWithPromo(
+        Sale $sale,
+        float $retailSubtotal,
+        float $retailDiscount,
+        float $retailCogs,
+        float $serviceSubtotal,
+        float $serviceCogs,
+        float $tax = 0.0,
+        float $promoDiscount = 0.0,
+        string $promoCoaCode = '4199',
+    ): Journal {
+        $cash = $retailSubtotal - $retailDiscount - $promoDiscount + $serviceSubtotal + $tax;
+
+        $lines = [
+            ['1101', $cash, 0.0],
+            ['4199', $retailDiscount, 0.0],
+            [$promoCoaCode, $promoDiscount, 0.0],   // baris promo discount
+            ['4101', 0.0, $retailSubtotal],
+            ['4103', 0.0, $serviceSubtotal],
+            ['2102', 0.0, $tax],
+            ['5100', $retailCogs, 0.0],
+            ['1201', 0.0, $retailCogs],
+            ['5102', $serviceCogs, 0.0],
+            ['1201', 0.0, $serviceCogs],
+        ];
+
+        return $this->post(
+            description: "Penjualan #{$sale->invoice_no} (promo)",
+            refType: Sale::class,
+            refId: $sale->id,
+            lines: $lines,
+        );
+    }
+
+    /**
      * Service sale (jasa, dengan atau tanpa konsumsi bahan):
      *   D 1101 Kas            = total
      *   C 4103 Pendapatan Jasa = subtotal
