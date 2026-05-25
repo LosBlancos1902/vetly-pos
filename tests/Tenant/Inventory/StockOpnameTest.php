@@ -68,6 +68,25 @@ function createOpnameWithSnapshot(int $warehouseId): StockOpname
     return StockOpname::latest('id')->firstOrFail();
 }
 
+/**
+ * Strict gate complete() (sejak Batch 5 fix Excel-only flow): WAJIB semua
+ * item punya qty_physical. Test legacy biasanya fokus 1 item saja → helper
+ * ini backfill sisa item dgn qty_physical = qty_system (zero variance —
+ * di-skip oleh complete() tolerance check, jadi tidak mempengaruhi assertion).
+ */
+function fillAllOpnameItemsToSystem(StockOpname $opname): void
+{
+    StockOpnameItem::where('opname_id', $opname->id)
+        ->whereNull('qty_physical')
+        ->get()
+        ->each(function ($item) {
+            $item->update([
+                'qty_physical' => $item->qty_system,
+                'qty_diff' => 0,
+            ]);
+        });
+}
+
 beforeEach(function () {
     (new DefaultRolesSeeder)->run();
 
@@ -126,6 +145,7 @@ it('complete dengan selisih PLUS → qty naik + adjustment_plus + jurnal D 1201/
     callOpnameController('update_items', Request::create('', 'PUT', [
         'items' => [['id' => $item->id, 'qty_physical' => 110]],
     ]), $opname);
+    fillAllOpnameItemsToSystem($opname);
     callOpnameController('complete', Request::create('', 'POST'), $opname);
 
     $inv = currentInventory($p1->id, $warehouse->id);
@@ -160,6 +180,7 @@ it('complete dengan selisih MINUS → qty turun + adjustment_minus + jurnal D 51
     callOpnameController('update_items', Request::create('', 'PUT', [
         'items' => [['id' => $item->id, 'qty_physical' => 92]],
     ]), $opname);
+    fillAllOpnameItemsToSystem($opname);
     callOpnameController('complete', Request::create('', 'POST'), $opname);
 
     $inv = currentInventory($p1->id, $warehouse->id);
@@ -193,6 +214,7 @@ it('item tanpa selisih (diff=0) → no movement no jurnal entry', function () {
     callOpnameController('update_items', Request::create('', 'PUT', [
         'items' => [['id' => $item->id, 'qty_physical' => 100]], // sama dengan sistem
     ]), $opname);
+    fillAllOpnameItemsToSystem($opname);
     callOpnameController('complete', Request::create('', 'POST'), $opname);
 
     $inv = currentInventory($p1->id, $warehouse->id);
@@ -216,6 +238,7 @@ it('complete 2x ditolak (status guard)', function () {
     callOpnameController('update_items', Request::create('', 'PUT', [
         'items' => [['id' => $item->id, 'qty_physical' => 55]],
     ]), $opname);
+    fillAllOpnameItemsToSystem($opname);
     callOpnameController('complete', Request::create('', 'POST'), $opname);
 
     expect(fn () => callOpnameController('complete', Request::create('', 'POST'), $opname->fresh()))
@@ -277,6 +300,7 @@ it('multi-item mixed plus/minus/nol → semua kekoreksi + 2 jurnal aggregate', f
             ['id' => $items[$p3->id]->id, 'qty_physical' => 30],
         ],
     ]), $opname);
+    fillAllOpnameItemsToSystem($opname);
     callOpnameController('complete', Request::create('', 'POST'), $opname);
 
     expect((float) currentInventory($p1->id, $warehouse->id)->qty)->toBe(105.0)
@@ -324,6 +348,7 @@ it('transaction rollback bersih kalau gagal di tengah (mock JournalEngine throw)
     callOpnameController('update_items', Request::create('', 'PUT', [
         'items' => [['id' => $item->id, 'qty_physical' => 110]],
     ]), $opname);
+    fillAllOpnameItemsToSystem($opname);
 
     // Mock JournalEngine throw saat postAdjustment.
     $mock = \Mockery::mock(JournalEngine::class);
@@ -345,4 +370,51 @@ it('transaction rollback bersih kalau gagal di tengah (mock JournalEngine throw)
 
     // Opname status tetap counting (belum jadi completed).
     expect($opname->refresh()->status)->toBe('counting');
+});
+
+// ─── Batch 5: SO Excel-only flow — strict completion gate ──────────────
+
+it('STRICT GATE: complete ditolak kalau ada item belum diisi qty_physical', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    presetInventory($p1->id, $warehouse->id, 100, 1000);
+
+    $opname = createOpnameWithSnapshot($warehouse->id);
+    $item = $opname->items()->where('product_id', $p1->id)->firstOrFail();
+
+    // Isi cuma 1 item, sisanya biarkan null — pre-fix ini lolos
+    // ("minimal 1 item"); post-fix DITOLAK ("semua item wajib").
+    callOpnameController('update_items', Request::create('', 'PUT', [
+        'items' => [['id' => $item->id, 'qty_physical' => 95]],
+    ]), $opname);
+
+    $unfilledCount = StockOpnameItem::where('opname_id', $opname->id)
+        ->whereNull('qty_physical')->count();
+    expect($unfilledCount)->toBeGreaterThan(0); // sanity: ada item belum keisi
+
+    expect(fn () => callOpnameController('complete', Request::create('', 'POST'), $opname))
+        ->toThrow(HttpException::class, "Masih ada {$unfilledCount} item belum diisi qty fisik.");
+
+    // Status tetap counting (belum complete).
+    expect($opname->refresh()->status)->toBe('counting');
+
+    // Tidak ada stock_movement / jurnal.
+    $movementCount = StockMovement::withoutGlobalScopes()
+        ->where('ref_type', StockOpname::class)->where('ref_id', $opname->id)->count();
+    expect($movementCount)->toBe(0);
+});
+
+it('STRICT GATE: complete sukses kalau SEMUA item terisi qty_physical', function () {
+    $warehouse = Warehouse::query()->firstOrFail();
+    $p1 = Product::where('sku', 'SKU-001')->firstOrFail();
+    presetInventory($p1->id, $warehouse->id, 100, 1000);
+
+    $opname = createOpnameWithSnapshot($warehouse->id);
+
+    // Isi semua item dgn qty_physical = qty_system (zero variance).
+    fillAllOpnameItemsToSystem($opname);
+
+    callOpnameController('complete', Request::create('', 'POST'), $opname);
+
+    expect($opname->refresh()->status)->toBe('completed');
 });

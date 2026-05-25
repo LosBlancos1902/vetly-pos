@@ -10,6 +10,7 @@ use App\Models\Tenant\Product;
 use App\Models\Tenant\Sale;
 use App\Models\Tenant\ServiceBundle;
 use App\Models\Tenant\StockMovement;
+use App\Models\Tenant\StockOpnameItem;
 use App\Models\Tenant\StockOpname;
 use App\Models\Tenant\User as TenantUser;
 use App\Models\Tenant\Warehouse;
@@ -115,6 +116,16 @@ function completeOpname(StockOpname $opname, array $qtyPhysicalBySku): void
         $req->setUserResolver(fn () => Auth::user());
         $controller->updateItems($req, $opname);
     }
+
+    // Strict gate (Batch 5): complete() butuh SEMUA item terisi. Test ini
+    // legacy fokus subset SKU — backfill sisanya dgn qty_physical=qty_system
+    // (zero variance, di-skip oleh tolerance check di complete()).
+    StockOpnameItem::where('opname_id', $opname->id)
+        ->whereNull('qty_physical')
+        ->get()->each(fn ($it) => $it->update([
+            'qty_physical' => $it->qty_system,
+            'qty_diff' => 0,
+        ]));
 
     // Complete.
     $req = Request::create('', 'POST');

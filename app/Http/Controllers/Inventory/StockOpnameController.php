@@ -238,10 +238,17 @@ class StockOpnameController extends Controller
         $opname->load('items', 'warehouse');
         $warehouse = $opname->warehouse;
 
-        $itemsWithPhysical = $opname->items->whereNotNull('qty_physical');
-        if ($itemsWithPhysical->isEmpty()) {
-            abort(422, 'Belum ada item yang dihitung — minimal 1 item harus diinput qty fisik.');
+        // STRICT gate: SEMUA item wajib punya qty_physical (terisi via upload
+        // Excel). Alur SO sekarang Excel-only — tidak ada input manual di web.
+        // Kalau ada item belum keisi, tolak dengan pesan jelas (count).
+        $unfilled = $opname->items->whereNull('qty_physical')->count();
+        if ($unfilled > 0) {
+            abort(422,
+                "Masih ada {$unfilled} item belum diisi qty fisik. "
+                .'Upload Excel lengkap dulu sebelum menyelesaikan.');
         }
+
+        $itemsWithPhysical = $opname->items; // semua sudah pasti terisi
 
         DB::transaction(function () use ($opname, $warehouse, $itemsWithPhysical, $request) {
             $totalPlus = 0.0;

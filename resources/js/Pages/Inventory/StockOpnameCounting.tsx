@@ -1,6 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Head, router } from '@inertiajs/react';
-import { toast } from 'sonner';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
@@ -23,12 +22,6 @@ import {
     DialogTitle,
 } from '@/Components/ui/dialog';
 import { formatQty, rupiah } from '@/lib/utils';
-
-// Threshold "salah ketik" untuk qty fisik. Di bawah ini hampir pasti
-// koma kepencet (mis. "1,2" jadi "0,12" dibaca Excel sebagai 0.12).
-// 0 tetap valid (= stok habis). DB sendiri masih DECIMAL(15,4); ini cuma
-// guard input layer untuk produk satuan utuh.
-const QTY_TYPO_THRESHOLD = 0.01;
 
 type Status = 'draft' | 'counting' | 'completed' | 'cancelled';
 
@@ -86,15 +79,11 @@ const STATUS_LABEL: Record<Status, { label: string; variant: 'default' | 'info' 
 
 export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
     const readOnly = opname.status === 'completed' || opname.status === 'cancelled';
-    const [rows, setRows] = useState(() =>
-        opname.items.map((it) => ({
-            id: it.id,
-            qty_system: it.qty_system,
-            qty_physical: it.qty_physical ?? '',
-            notes: it.notes ?? '',
-            product: it.product,
-        })),
-    );
+
+    // Alur SO Excel-only: qty_physical TIDAK editable di web. Semua field
+    // read-only display dari DB (hasil upload Excel terakhir).
+    const rows = opname.items;
+
     const [search, setSearch] = useState('');
     const [cancelOpen, setCancelOpen] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
@@ -112,12 +101,8 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
         );
     }, [rows, search]);
 
-    function updateRow(id: number, patch: Partial<typeof rows[number]>) {
-        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-    }
-
-    function diffFor(r: typeof rows[number]): number | null {
-        if (r.qty_physical === '' || r.qty_physical === null) return null;
+    function diffFor(r: OpnameItem): number | null {
+        if (r.qty_physical === null || r.qty_physical === '') return null;
         return Number(r.qty_physical) - Number(r.qty_system);
     }
 
@@ -133,62 +118,30 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
         return { plus, minus, zero, empty };
     }
 
-    function saveProgress() {
-        setSubmitting(true);
-        router.put(
-            route('inventory.opnames.update_items', opname.id),
-            {
-                items: rows.map((r) => ({
-                    id: r.id,
-                    qty_physical: r.qty_physical === '' ? null : Number(r.qty_physical),
-                    notes: r.notes || null,
-                })),
-            },
-            {
-                onSuccess: () => toast.success('Hasil hitung disimpan'),
-                onError: (errs) => toast.error((Object.values(errs)[0] as string) ?? 'Gagal simpan'),
-                onFinish: () => setSubmitting(false),
-                preserveScroll: true,
-            },
-        );
-    }
+    const summary = diffSummary();
+    const hasUnfilled = summary.empty > 0;
 
     function openCompleteConfirm() {
+        // Client-side preview gate. Backend tetap punya guard strict.
+        // Buka dialog regardless — biar user lihat berapa item belum keisi
+        // di dalam dialog (tombol konfirmasi yang di-disable kalau belum lengkap).
         setCompleteOpen(true);
     }
 
     function confirmComplete() {
-        // Save progress dulu, lalu complete dalam satu rangkaian.
         setSubmitting(true);
-        router.put(
-            route('inventory.opnames.update_items', opname.id),
+        // Server flash.success / flash.error akan di-toast oleh global handler
+        // di app.tsx — jangan hardcode toast.success di sini (sebelumnya toast
+        // sukses muncul keliru karena Inertia treat 422→302 sebagai onSuccess).
+        router.post(
+            route('inventory.opnames.complete', opname.id),
+            {},
             {
-                items: rows.map((r) => ({
-                    id: r.id,
-                    qty_physical: r.qty_physical === '' ? null : Number(r.qty_physical),
-                    notes: r.notes || null,
-                })),
-            },
-            {
-                onSuccess: () => {
-                    router.post(
-                        route('inventory.opnames.complete', opname.id),
-                        {},
-                        {
-                            onSuccess: () => {
-                                toast.success('Opname selesai');
-                                setCompleteOpen(false);
-                            },
-                            onError: (errs) =>
-                                toast.error((Object.values(errs)[0] as string) ?? 'Gagal complete'),
-                            onFinish: () => setSubmitting(false),
-                        },
-                    );
-                },
-                onError: (errs) => {
-                    toast.error((Object.values(errs)[0] as string) ?? 'Gagal simpan');
+                onFinish: () => {
                     setSubmitting(false);
+                    setCompleteOpen(false);
                 },
+                preserveScroll: true,
             },
         );
     }
@@ -203,8 +156,9 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
 
         router.post(route('inventory.opnames.excel.upload', opname.id), form, {
             forceFormData: true,
-            onSuccess: () => toast.success('Excel diimport, refresh untuk lihat hasil.'),
-            onError: (errs) => toast.error((Object.values(errs)[0] as string) ?? 'Gagal upload'),
+            // Flash dari server handle toast. Reload page supaya tabel ke-refresh
+            // dgn qty_physical dari Excel (router.reload via preserveScroll false
+            // default).
             onFinish: () => {
                 setUploading(false);
                 e.target.value = ''; // reset agar file sama bisa upload ulang
@@ -218,17 +172,13 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
             route('inventory.opnames.cancel', opname.id),
             { cancelled_reason: cancelReason },
             {
-                onSuccess: () => {
-                    toast.success('Opname dibatalkan');
-                    setCancelOpen(false);
-                },
-                onError: (errs) => toast.error((Object.values(errs)[0] as string) ?? 'Gagal'),
+                onFinish: () => setCancelOpen(false),
+                preserveScroll: true,
             },
         );
     }
 
     const meta = STATUS_LABEL[opname.status];
-    const summary = diffSummary();
 
     return (
         <AuthenticatedLayout
@@ -279,14 +229,24 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                             <span className="rounded-md bg-green-100 px-2 py-1">+ {summary.plus}</span>
                             <span className="rounded-md bg-red-100 px-2 py-1">- {summary.minus}</span>
                             <span className="rounded-md bg-gray-100 px-2 py-1">= {summary.zero}</span>
-                            <span className="rounded-md bg-gray-100 px-2 py-1">
+                            <span className={`rounded-md px-2 py-1 ${
+                                summary.empty > 0 ? 'bg-amber-100 text-amber-900' : 'bg-gray-100'
+                            }`}>
                                 belum {summary.empty}
                             </span>
                         </div>
+
+                        {! readOnly && (
+                            <p className="border-t pt-2 text-xs text-muted-foreground">
+                                Pengisian qty fisik via <strong>Upload Excel</strong>. Download
+                                template, isi qty fisik di Excel, lalu upload kembali. Setelah
+                                semua item terisi, klik <strong>Selesaikan</strong>.
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                     <Input
                         placeholder="Cari nama / SKU"
                         value={search}
@@ -311,14 +271,6 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                     disabled={uploading || submitting}
                                 />
                             </label>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={saveProgress}
-                                disabled={submitting}
-                            >
-                                Simpan Progres
-                            </Button>
                             <Button
                                 type="button"
                                 variant="destructive"
@@ -355,6 +307,7 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                 )}
                                 {filtered.map((r) => {
                                     const d = diffFor(r);
+                                    const isEmpty = r.qty_physical === null || r.qty_physical === '';
                                     return (
                                         <TableRow key={r.id}>
                                             <TableCell>
@@ -364,35 +317,17 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                     {r.product.base_unit && ` · ${r.product.base_unit.code}`}
                                                 </div>
                                             </TableCell>
-                                            <TableCell className="text-right">
+                                            <TableCell className="text-right font-mono">
                                                 {formatQty(r.qty_system)}
                                             </TableCell>
-                                            <TableCell className="text-right">
-                                                <Input
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    value={r.qty_physical}
-                                                    onChange={(e) =>
-                                                        updateRow(r.id, { qty_physical: e.target.value })
-                                                    }
-                                                    className="w-28 text-right"
-                                                    disabled={readOnly}
-                                                    aria-invalid={
-                                                        r.qty_physical !== '' &&
-                                                        Number(r.qty_physical) > 0 &&
-                                                        Number(r.qty_physical) < QTY_TYPO_THRESHOLD
-                                                    }
-                                                />
-                                                {r.qty_physical !== '' &&
-                                                    Number(r.qty_physical) > 0 &&
-                                                    Number(r.qty_physical) < QTY_TYPO_THRESHOLD && (
-                                                        <div className="mt-1 text-right text-xs text-red-700">
-                                                            angka sangat kecil — typo?
-                                                        </div>
-                                                    )}
+                                            <TableCell className="text-right font-mono">
+                                                {isEmpty ? (
+                                                    <span className="text-amber-700">— belum diisi</span>
+                                                ) : (
+                                                    formatQty(r.qty_physical)
+                                                )}
                                             </TableCell>
-                                            <TableCell className={`text-right ${
+                                            <TableCell className={`text-right font-mono ${
                                                 d === null
                                                     ? 'text-muted-foreground'
                                                     : d > 0
@@ -402,18 +337,13 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                         : ''
                                             }`}>
                                                 {d === null
-                                                    ? '-'
+                                                    ? '—'
                                                     : d > 0
                                                       ? `+${formatQty(d)}`
                                                       : formatQty(d)}
                                             </TableCell>
-                                            <TableCell>
-                                                <Input
-                                                    value={r.notes}
-                                                    onChange={(e) => updateRow(r.id, { notes: e.target.value })}
-                                                    placeholder="rusak / hilang / dst"
-                                                    disabled={readOnly}
-                                                />
+                                            <TableCell className="text-xs text-muted-foreground">
+                                                {r.notes ?? ''}
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -440,18 +370,23 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                         );
                         const hasDiff = diffItems.length > 0;
                         const hasPending = pendingSummary.count > 0;
-                        const isSimple = !hasDiff && !hasPending;
 
                         return (
                             <div className="space-y-4 text-sm">
-                                {isSimple ? (
-                                    <p>
-                                        Tidak ada selisih dan tidak ada penjualan tertahan.
-                                        Lanjutkan menyelesaikan opname?
-                                    </p>
+                                {hasUnfilled ? (
+                                    <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                                        <div className="font-semibold">
+                                            Masih ada {summary.empty} item belum diisi qty fisik.
+                                        </div>
+                                        <p className="mt-1 text-xs">
+                                            Upload Excel lengkap dulu sebelum menyelesaikan.
+                                            Stock Opname tidak bisa diselesaikan setengah-setengah —
+                                            semua item harus dihitung.
+                                        </p>
+                                    </div>
                                 ) : (
                                     <>
-                                        <div className="rounded-md border bg-muted/50 p-3 space-y-2">
+                                        <div className="space-y-2 rounded-md border bg-muted/50 p-3">
                                             <div className="flex justify-between">
                                                 <span className="text-muted-foreground">Item dengan selisih</span>
                                                 <span className="font-semibold">
@@ -475,11 +410,13 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                                                 Menyelesaikan opname ini akan:
                                             </p>
                                             <ol className="list-decimal space-y-1 pl-5">
-                                                {hasDiff && (
+                                                {hasDiff ? (
                                                     <li>
                                                         Menyesuaikan stok ke hasil fisik
                                                         {' '}({diffItems.length} item) + post jurnal selisih
                                                     </li>
+                                                ) : (
+                                                    <li>Stok sudah sesuai sistem — tidak ada penyesuaian</li>
                                                 )}
                                                 {hasPending && (
                                                     <li>
@@ -508,8 +445,12 @@ export default function StockOpnameCounting({ opname, pendingSummary }: Props) {
                         >
                             Batal
                         </Button>
-                        <Button type="button" onClick={confirmComplete} disabled={submitting}>
-                            {submitting ? 'Memproses…' : 'Konfirmasi'}
+                        <Button
+                            type="button"
+                            onClick={confirmComplete}
+                            disabled={submitting || hasUnfilled}
+                        >
+                            {submitting ? 'Memproses…' : 'Ya, Selesaikan'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
