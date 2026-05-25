@@ -52,6 +52,7 @@ class StockMovement
      *   ref_type?: string,
      *   ref_id?: int,
      *   notes?: string,
+     *   reason?: string,
      *   unit_id_input?: int,
      *   qty_input?: float|string,
      *   allow_minus?: bool,
@@ -143,6 +144,7 @@ class StockMovement
                 'ref_type' => $options['ref_type'] ?? null,
                 'ref_id' => $options['ref_id'] ?? null,
                 'notes' => $options['notes'] ?? null,
+                'reason' => $options['reason'] ?? null,
                 'user_id' => Auth::id(),
                 'created_at' => now(),
             ]);

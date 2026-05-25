@@ -90,7 +90,10 @@
       "Bash(./vendor/bin/pest tests/Tenant/DashboardTest.php)",
       "Bash(./vendor/bin/pest --testsuite=Tenant)",
       "Bash(./vendor/bin/pest tests/Tenant/Master/WarehouseCrudTest.php)",
-      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockSummaryTest.php)"
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockSummaryTest.php)",
+      "Bash(ssh -T git@github.com)",
+      "Bash(ssh-add -l)",
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockAdjustmentTest.php)"
     ]
   }
 }

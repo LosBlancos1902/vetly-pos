@@ -139,6 +139,12 @@ export default function Authenticated({
                     permission: 'inventory.view',
                 },
                 {
+                    label: 'Penyesuaian Stok',
+                    href: route('inventory.adjustments.index'),
+                    routeMatch: 'inventory.adjustments.*',
+                    permission: 'inventory.adjustment',
+                },
+                {
                     label: 'Stock Opname',
                     href: route('inventory.opnames.index'),
                     routeMatch: 'inventory.opnames.*',

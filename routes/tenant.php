@@ -208,9 +208,19 @@ Route::middleware([
 
         // Inventory
         Route::get('/inventory/stock', [StockController::class, 'index'])->name('inventory.stock');
-        Route::post('/inventory/adjustment', [StockController::class, 'adjust'])->name('inventory.adjustment');
         Route::get('/inventory/stock-card/{product}', [StockCardController::class, 'show'])
             ->middleware('can:inventory.view')->name('inventory.stock_card');
+
+        // Penyesuaian persediaan (manual adjustment) — wire jurnal +
+        // kategorisasi rusak/hilang/expired/koreksi. Pisah dari StockController
+        // supaya URL & navigasi bersih (list + form sendiri).
+        Route::middleware('can:inventory.adjustment')->prefix('inventory/adjustments')
+            ->name('inventory.adjustments.')->group(function () {
+                Route::get('/', [\App\Http\Controllers\Inventory\AdjustmentController::class, 'index'])->name('index');
+                Route::get('/products/search', [\App\Http\Controllers\Inventory\AdjustmentController::class, 'searchProducts'])->name('products.search');
+                Route::post('/preview', [\App\Http\Controllers\Inventory\AdjustmentController::class, 'preview'])->name('preview');
+                Route::post('/', [\App\Http\Controllers\Inventory\AdjustmentController::class, 'store'])->name('store');
+            });
 
         // Stock Opname
         Route::middleware('can:inventory.opname')->prefix('inventory/opnames')
