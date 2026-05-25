@@ -39,6 +39,16 @@ class HandleInertiaRequests extends Middleware
                     ? $user->getAllPermissions()->pluck('name')->values()->all()
                     : [],
             ],
+            // Flash messages. Dipakai global toast handler di app.tsx.
+            // - 'error': dari withExceptions handler (HttpException 4xx) atau
+            //   manual back()->with('error', ...) di controller.
+            // - 'success': dari back()->with('success', ...) — sumber toast
+            //   sukses global. Form-level onSuccess client tetap berfungsi
+            //   sebagai tambahan.
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+                'error' => fn () => $request->session()->get('error'),
+            ],
         ];
     }
 }

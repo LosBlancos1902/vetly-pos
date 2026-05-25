@@ -98,7 +98,8 @@
       "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferTest.php --filter=\"qty_sent\")",
       "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferConcurrencyTest.php)",
       "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferTest.php tests/Tenant/Inventory/StockTransferConcurrencyTest.php)",
-      "Bash(./vendor/bin/pest tests/Tenant/Master/WarehouseCrudTest.php tests/Tenant/Inventory/StockTransferTest.php tests/Tenant/Inventory/StockTransferConcurrencyTest.php)"
+      "Bash(./vendor/bin/pest tests/Tenant/Master/WarehouseCrudTest.php tests/Tenant/Inventory/StockTransferTest.php tests/Tenant/Inventory/StockTransferConcurrencyTest.php)",
+      "Bash(./vendor/bin/pest tests/Tenant/InertiaErrorHandlingTest.php)"
     ]
   }
 }
