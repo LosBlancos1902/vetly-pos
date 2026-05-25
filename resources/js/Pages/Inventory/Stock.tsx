@@ -34,10 +34,25 @@ interface Filters {
     search: string | null;
 }
 
+interface Summary {
+    sku_count: number;
+    total_value: number;
+    low_stock_count: number;
+}
+
+interface SummaryWarehouse {
+    id: number;
+    code: string;
+    name: string;
+    warehouse_type: string;
+}
+
 interface Props {
     inventories: { data: Row[]; links?: Array<{ url: string | null; label: string; active: boolean }> };
     warehouses: Warehouse[];
     productTypes: Record<string, string>;
+    summary: Summary | null;
+    summaryWarehouse: SummaryWarehouse | null;
     filters: Filters;
 }
 
@@ -49,7 +64,14 @@ const TYPE_VARIANT: Record<string, 'info' | 'warning' | 'muted' | 'success' | 's
     service_with_consumption: 'muted',
 };
 
-export default function Stock({ inventories, warehouses, productTypes, filters }: Props) {
+export default function Stock({
+    inventories,
+    warehouses,
+    productTypes,
+    summary,
+    summaryWarehouse,
+    filters,
+}: Props) {
     const [warehouseId, setWarehouseId] = useState<string>(
         filters.warehouse_id ? String(filters.warehouse_id) : '',
     );
@@ -80,6 +102,52 @@ export default function Stock({ inventories, warehouses, productTypes, filters }
         <AuthenticatedLayout header={<h2 className="text-xl font-semibold">Stok</h2>}>
             <Head title="Stok" />
             <div className="mx-auto max-w-7xl space-y-4 p-4">
+                {summary && summaryWarehouse && (
+                    <Card>
+                        <CardContent className="p-4">
+                            <div className="mb-3 flex items-baseline justify-between gap-2">
+                                <div>
+                                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                                        Ringkasan Isi Gudang
+                                    </div>
+                                    <div className="text-lg font-semibold">
+                                        {summaryWarehouse.name}{' '}
+                                        <span className="text-sm font-normal text-muted-foreground">
+                                            ({summaryWarehouse.code})
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                <div className="rounded-md border p-3">
+                                    <div className="text-xs text-muted-foreground">SKU Aktif (qty {'>'} 0)</div>
+                                    <div className="text-2xl font-bold">
+                                        {formatQty(summary.sku_count, 0)}
+                                    </div>
+                                </div>
+                                <div className="rounded-md border p-3">
+                                    <div className="text-xs text-muted-foreground">Total Nilai Stok (HPP)</div>
+                                    <div className="text-2xl font-bold">
+                                        {rupiah(summary.total_value)}
+                                    </div>
+                                </div>
+                                <div className="rounded-md border p-3">
+                                    <div className="text-xs text-muted-foreground">Produk Stok Menipis</div>
+                                    <div className="text-2xl font-bold">
+                                        {summary.low_stock_count > 0 ? (
+                                            <span className="text-amber-700">
+                                                {formatQty(summary.low_stock_count, 0)}
+                                            </span>
+                                        ) : (
+                                            <span className="text-emerald-700">0</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
                 <Card>
                     <CardContent className="p-4">
                         <form onSubmit={applyFilters} className="grid grid-cols-1 gap-3 md:grid-cols-4">

@@ -56,6 +56,12 @@ class ProductController extends Controller
             'baseUnit:id,code,name',
             'units.unit:id,code,name',
             'units.prices:id,product_unit_id,price_tier_id,price',
+            // Stok per gudang untuk section "Stok per Gudang" di modal master.
+            // Bypass WarehouseScope: owner/manager perlu lihat lintas cabang
+            // walaupun mereka punya warehouse_id (tidak akan, tapi defensive).
+            'inventories' => fn ($q) => $q->withoutGlobalScopes()
+                ->with('warehouse:id,code,name,warehouse_type,is_active')
+                ->orderByDesc('qty'),
         ]);
 
         return response()->json(['product' => $product]);

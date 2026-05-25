@@ -68,6 +68,18 @@ interface UnitDetail {
     unit: MasterUnit;
     prices: Array<{ id: number; price_tier_id: number; price: string }>;
 }
+interface InventoryRow {
+    id: number;
+    qty: string;
+    cost_avg: string;
+    warehouse?: {
+        id: number;
+        code: string;
+        name: string;
+        warehouse_type: string;
+        is_active: boolean;
+    };
+}
 interface ProductDetail extends ProductRow {
     description: string | null;
     category_id: number;
@@ -75,6 +87,7 @@ interface ProductDetail extends ProductRow {
     base_unit_id: number;
     min_stock: string;
     units: UnitDetail[];
+    inventories?: InventoryRow[];
 }
 
 interface Props {
@@ -163,11 +176,14 @@ export default function Products({ products, categories, brands, units, tiers, f
     const [activeTab, setActiveTab] = useState<'umum' | 'harga' | 'stok'>('umum');
     const [search, setSearch] = useState(filters.search ?? '');
     const [submitting, setSubmitting] = useState(false);
+    // Stok per gudang — read-only, di-fetch saat startEdit; null saat create.
+    const [inventories, setInventories] = useState<InventoryRow[] | null>(null);
     const isEdit = form.id !== undefined;
     const defaultTier = useMemo(() => tiers.find((t) => t.is_default), [tiers]);
 
     function startCreate() {
         setForm(emptyForm(tiers));
+        setInventories(null);
         setActiveTab('umum');
         setOpen(true);
     }
@@ -209,6 +225,7 @@ export default function Products({ products, categories, brands, units, tiers, f
                 is_active: d.is_active,
                 units: unitRows,
             });
+            setInventories(d.inventories ?? []);
             setActiveTab('umum');
             setOpen(true);
         } catch (e) {
@@ -651,6 +668,76 @@ export default function Products({ products, categories, brands, units, tiers, f
                                         atau Opname setelah produk dibuat.
                                     </p>
                                 )}
+
+                                {isEdit && inventories !== null && (
+                                    <div className="space-y-2 pt-2">
+                                        <Label>Stok per Gudang</Label>
+                                        {inventories.length === 0 ? (
+                                            <p className="text-sm text-muted-foreground">
+                                                Belum ada stok di gudang manapun.
+                                            </p>
+                                        ) : (
+                                            <div className="rounded-md border">
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>Gudang</TableHead>
+                                                            <TableHead>Tipe</TableHead>
+                                                            <TableHead className="text-right">Qty</TableHead>
+                                                            <TableHead className="text-right">HPP Rata2</TableHead>
+                                                            <TableHead className="text-right">Aksi</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {inventories.map((inv) => (
+                                                            <TableRow key={inv.id}>
+                                                                <TableCell>
+                                                                    <div className="font-medium">
+                                                                        {inv.warehouse?.name ?? '—'}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground">
+                                                                        {inv.warehouse?.code}
+                                                                        {! inv.warehouse?.is_active && (
+                                                                            <span className="ml-1 text-amber-700">(nonaktif)</span>
+                                                                        )}
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell className="text-sm">
+                                                                    {inv.warehouse?.warehouse_type ?? '—'}
+                                                                </TableCell>
+                                                                <TableCell className="text-right font-mono">
+                                                                    {formatQty(inv.qty)}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    {rupiah(inv.cost_avg)}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    {form.id && (
+                                                                        <Link
+                                                                            href={
+                                                                                route('inventory.stock_card', form.id) +
+                                                                                (inv.warehouse?.id
+                                                                                    ? `?warehouse_id=${inv.warehouse.id}`
+                                                                                    : '')
+                                                                            }
+                                                                            className="text-xs text-sky-700 hover:underline"
+                                                                        >
+                                                                            Kartu Stok →
+                                                                        </Link>
+                                                                    )}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        )}
+                                        <p className="text-xs text-muted-foreground">
+                                            Read-only — perubahan stok lewat Pembelian (PO), Opname, atau Stock Adjustment.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <label className="flex items-center gap-2 text-sm">
                                     <input type="checkbox"
                                         checked={form.is_active}

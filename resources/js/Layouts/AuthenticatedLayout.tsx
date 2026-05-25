@@ -63,6 +63,12 @@ export default function Authenticated({
                     permission: 'master.manage',
                 },
                 {
+                    label: 'Gudang / Cabang',
+                    href: route('master.warehouses.index'),
+                    routeMatch: 'master.warehouses.*',
+                    permission: 'master.manage',
+                },
+                {
                     label: 'Pelanggan',
                     href: route('master.customers.index'),
                     routeMatch: 'master.customers.*',

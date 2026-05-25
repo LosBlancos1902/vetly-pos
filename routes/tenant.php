@@ -94,6 +94,12 @@ Route::middleware([
             ->only(['index', 'store', 'update', 'destroy'])
             ->middleware('can:master.manage');
 
+        Route::resource('master/warehouses', \App\Http\Controllers\Master\WarehouseController::class)
+            ->parameters(['warehouses' => 'warehouse'])
+            ->names('master.warehouses')
+            ->only(['index', 'store', 'update', 'destroy'])
+            ->middleware('can:master.manage');
+
         // Master pelanggan (CRM)
         Route::get('/master/customers/search',
             [\App\Http\Controllers\Master\CustomerController::class, 'search'])
