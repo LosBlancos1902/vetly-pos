@@ -118,6 +118,7 @@ export default function Authenticated({
             ],
         },
         {
+            label: 'Inventori',
             items: [
                 {
                     label: 'Inventori',
@@ -181,6 +182,26 @@ export default function Authenticated({
         }))
         .filter((s) => s.items.length > 0);
 
+    // Collapsible groups — state resets on each mount (no persistence by design).
+    // Groups containing the active route auto-expand on initial render.
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+        const expanded = new Set<string>();
+        visibleSections.forEach((s) => {
+            if (s.label && s.items.some((i) => route().current(i.routeMatch))) {
+                expanded.add(s.label);
+            }
+        });
+        return expanded;
+    });
+
+    const toggleGroup = (label: string) =>
+        setExpandedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(label)) next.delete(label);
+            else next.add(label);
+            return next;
+        });
+
     function NavItemLink({ item }: { item: NavItem }) {
         const active = route().current(item.routeMatch);
         return (
@@ -207,20 +228,46 @@ export default function Authenticated({
                 </Link>
             </div>
             <nav className="flex-1 overflow-y-auto py-4">
-                {visibleSections.map((section, sIdx) => (
-                    <div key={sIdx} className={sIdx > 0 ? 'mt-6' : ''}>
-                        {section.label && (
-                            <div className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                                {section.label}
-                            </div>
-                        )}
-                        <div className="space-y-0.5">
-                            {section.items.map((item) => (
-                                <NavItemLink key={item.label} item={item} />
-                            ))}
+                {visibleSections.map((section, sIdx) => {
+                    const isGroup = !!section.label;
+                    const expanded = isGroup ? expandedGroups.has(section.label!) : true;
+                    return (
+                        <div key={sIdx} className={sIdx > 0 ? 'mt-6' : ''}>
+                            {isGroup && (
+                                <button
+                                    type="button"
+                                    onClick={() => toggleGroup(section.label!)}
+                                    aria-expanded={expanded}
+                                    className="mb-2 flex w-full items-center justify-between px-4 text-xs font-semibold uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-600"
+                                >
+                                    <span>{section.label}</span>
+                                    <svg
+                                        className={
+                                            'h-3 w-3 transform transition-transform duration-200 ' +
+                                            (expanded ? 'rotate-90' : '')
+                                        }
+                                        viewBox="0 0 20 20"
+                                        fill="currentColor"
+                                        aria-hidden="true"
+                                    >
+                                        <path
+                                            fillRule="evenodd"
+                                            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                                            clipRule="evenodd"
+                                        />
+                                    </svg>
+                                </button>
+                            )}
+                            {expanded && (
+                                <div className="space-y-0.5">
+                                    {section.items.map((item) => (
+                                        <NavItemLink key={item.label} item={item} />
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </nav>
         </>
     );
