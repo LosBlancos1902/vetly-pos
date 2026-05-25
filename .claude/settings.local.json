@@ -93,7 +93,12 @@
       "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockSummaryTest.php)",
       "Bash(ssh -T git@github.com)",
       "Bash(ssh-add -l)",
-      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockAdjustmentTest.php)"
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockAdjustmentTest.php)",
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferTest.php)",
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferTest.php --filter=\"qty_sent\")",
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferConcurrencyTest.php)",
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockTransferTest.php tests/Tenant/Inventory/StockTransferConcurrencyTest.php)",
+      "Bash(./vendor/bin/pest tests/Tenant/Master/WarehouseCrudTest.php tests/Tenant/Inventory/StockTransferTest.php tests/Tenant/Inventory/StockTransferConcurrencyTest.php)"
     ]
   }
 }

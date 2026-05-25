@@ -55,8 +55,19 @@ beforeEach(function () {
     (new DefaultRolesSeeder)->run();
     Auth::login(ownerForWarehouse());
 
-    // Cleanup residual dari run sebelumnya.
+    // Cleanup residual dari run sebelumnya (catch warehouses dari semua
+    // test gudang: WHT-, WHT-TRF-, WHT-ADJ, dll).
     $whIds = Warehouse::where('code', 'like', 'WHT-%')->pluck('id');
+
+    // FK dependencies: clean stock_transfers + items dulu (FK ke warehouses).
+    $transferIds = \App\Models\Tenant\StockTransfer::query()
+        ->whereIn('source_warehouse_id', $whIds)
+        ->orWhereIn('dest_warehouse_id', $whIds)->pluck('id');
+    if ($transferIds->isNotEmpty()) {
+        \App\Models\Tenant\StockTransferItem::whereIn('transfer_id', $transferIds)->delete();
+        \App\Models\Tenant\StockTransfer::whereIn('id', $transferIds)->delete();
+    }
+
     StockMovementModel::query()->withoutGlobalScopes()
         ->whereIn('warehouse_id', $whIds)->delete();
     Inventory::query()->withoutGlobalScopes()

@@ -222,6 +222,17 @@ Route::middleware([
                 Route::post('/', [\App\Http\Controllers\Inventory\AdjustmentController::class, 'store'])->name('store');
             });
 
+        // Transfer antar gudang (2-step + BDP) — Batch 3.
+        // Ship → in_transit → Receive (full/partial) → completed.
+        Route::middleware('can:inventory.transfer')->prefix('inventory/transfers')
+            ->name('inventory.transfers.')->group(function () {
+                Route::get('/', [\App\Http\Controllers\Inventory\StockTransferController::class, 'index'])->name('index');
+                Route::get('/products/search', [\App\Http\Controllers\Inventory\StockTransferController::class, 'searchProducts'])->name('products.search');
+                Route::post('/', [\App\Http\Controllers\Inventory\StockTransferController::class, 'store'])->name('store');
+                Route::get('/{transfer}', [\App\Http\Controllers\Inventory\StockTransferController::class, 'show'])->name('show');
+                Route::post('/{transfer}/receive', [\App\Http\Controllers\Inventory\StockTransferController::class, 'receive'])->name('receive');
+            });
+
         // Stock Opname
         Route::middleware('can:inventory.opname')->prefix('inventory/opnames')
             ->name('inventory.opnames.')->group(function () {

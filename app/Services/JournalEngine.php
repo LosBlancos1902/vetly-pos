@@ -307,6 +307,59 @@ class JournalEngine
     }
 
     /**
+     * Transfer SHIP — barang keluar gudang asal, masuk Barang Dalam Perjalanan:
+     *   D 1203 Barang Dalam Perjalanan = amount
+     *   C 1201 Persediaan              = amount
+     *
+     * amount = Σ (item.qty_sent × item.cost_at_transfer) per transfer.
+     */
+    public function postTransferShip(string $ref, float $amount, ?int $refId = null): Journal
+    {
+        return $this->post(
+            description: "Kirim transfer {$ref}",
+            refType: 'transfer_ship',
+            refId: $refId,
+            lines: [
+                ['1203', $amount, 0.0],
+                ['1201', 0.0, $amount],
+            ],
+        );
+    }
+
+    /**
+     * Transfer RECEIVE — BDP keluar, sebagian masuk persediaan tujuan,
+     * sebagian jadi kerugian transit (5100 HPP — sama dengan adjustment minus):
+     *   D 1201 Persediaan (tujuan) = amountReceived
+     *   D 5100 HPP (kerugian)      = amountLoss
+     *   C 1203 BDP                 = amountReceived + amountLoss
+     *
+     * Catatan:
+     *   - amountLoss=0 (no variance) → line 5100 di-skip oleh post() (zero-line),
+     *     jurnal tetap balance dengan 2 line saja (D 1201 / C 1203).
+     *   - BDP net jadi 0 setelah ship+receive (proof: total credit 1203 di
+     *     receive = total debit 1203 di ship).
+     *   - Konservasi nilai: amountReceived + amountLoss = TOTAL_SENT, jadi
+     *     value yang keluar source = value masuk dest + value loss.
+     */
+    public function postTransferReceive(
+        string $ref,
+        float $amountReceived,
+        float $amountLoss,
+        ?int $refId = null,
+    ): Journal {
+        return $this->post(
+            description: "Terima transfer {$ref}",
+            refType: 'transfer_receive',
+            refId: $refId,
+            lines: [
+                ['1201', $amountReceived, 0.0],
+                ['5100', $amountLoss, 0.0],
+                ['1203', 0.0, $amountReceived + $amountLoss],
+            ],
+        );
+    }
+
+    /**
      * @param  array<int, array{0:string,1:float,2:float}>  $lines  [coa_code, debit, credit]
      */
     private function post(string $description, string $refType, ?int $refId, array $lines): Journal
