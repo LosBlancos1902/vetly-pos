@@ -11,6 +11,7 @@ import {
 } from '@/Components/ui/table';
 import { rupiah } from '@/lib/utils';
 import PeriodFilter from '../_components/PeriodFilter';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Account {
     id: number;
@@ -33,9 +34,10 @@ interface Props {
     warehouses: Array<{ id: number; code: string; name: string }>;
     rows: Account[];
     totals: Totals;
+    available_columns: ColumnOption[];
 }
 
-export default function ProfitLoss({ filters, warehouses, rows, totals }: Props) {
+export default function ProfitLoss({ filters, warehouses, rows, totals, available_columns }: Props) {
     const rev = rows.filter((r) => r.type === 'revenue');
     const cogs = rows.filter((r) => r.type === 'cogs');
     const exp = rows.filter((r) => r.type === 'expense');
@@ -53,6 +55,7 @@ export default function ProfitLoss({ filters, warehouses, rows, totals }: Props)
                     warehouseId={filters.warehouse_id}
                     warehouses={warehouses}
                     warehouseDisabled
+                    availableColumns={available_columns}
                 />
 
                 <div className="rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">

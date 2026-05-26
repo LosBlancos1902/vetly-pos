@@ -11,6 +11,7 @@ import {
 } from '@/Components/ui/table';
 import { rupiah } from '@/lib/utils';
 import PeriodFilter from '../_components/PeriodFilter';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Account {
     id: number;
@@ -33,9 +34,10 @@ interface Props {
     filters: { from: string; to: string; warehouse_id: number | null };
     rows: Account[];
     totals: Totals;
+    available_columns: ColumnOption[];
 }
 
-export default function BalanceSheet({ filters, rows, totals }: Props) {
+export default function BalanceSheet({ filters, rows, totals, available_columns }: Props) {
     const asset = rows.filter((r) => r.type === 'asset');
     const liab = rows.filter((r) => r.type === 'liability');
     const equity = rows.filter((r) => r.type === 'equity');
@@ -48,6 +50,7 @@ export default function BalanceSheet({ filters, rows, totals }: Props) {
                     routeName="reports.balance_sheet"
                     to={filters.to}
                     onlyTo
+                    availableColumns={available_columns}
                 />
 
                 {!totals.is_balanced && (

@@ -3,6 +3,8 @@ import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { type FormEvent } from 'react';
+import ExportButton from './ExportButton';
+import { ColumnOption } from './ExportColumnPickerModal';
 
 interface Warehouse {
     id: number;
@@ -21,13 +23,15 @@ interface Props {
     showWarehouse?: boolean;
     warehouseDisabled?: boolean;
     onlyTo?: boolean;
+    /** Kolom yang bisa dipilih saat export. Kalau ada → tombol Export buka modal. */
+    availableColumns?: ColumnOption[];
     children?: React.ReactNode;
 }
 
 /**
  * Filter periode + cabang reusable untuk semua halaman laporan.
  * Submit via GET (Inertia visit) supaya URL share-able / bisa di-bookmark.
- * Tombol Export Excel = same params + ?export=1, langsung download.
+ * Tombol Export Excel: kalau availableColumns ada, buka modal pilih kolom dulu.
  */
 export default function PeriodFilter({
     routeName,
@@ -40,6 +44,7 @@ export default function PeriodFilter({
     showWarehouse = true,
     warehouseDisabled = false,
     onlyTo = false,
+    availableColumns,
     children,
 }: Props) {
     function submit(e: FormEvent) {
@@ -59,17 +64,13 @@ export default function PeriodFilter({
         });
     }
 
-    const exportHref = (() => {
-        const params = new URLSearchParams();
-        if (from && !onlyTo) params.set('from', from);
-        if (to) params.set('to', to);
-        if (warehouseId) params.set('warehouse_id', String(warehouseId));
-        Object.entries(extra).forEach(([k, v]) => {
-            if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
-        });
-        params.set('export', '1');
-        return `${route(routeName, routeParams as never)}?${params.toString()}`;
-    })();
+    const exportParams: Record<string, string | number | null | undefined> = {};
+    if (from && !onlyTo) exportParams.from = from;
+    if (to) exportParams.to = to;
+    if (warehouseId) exportParams.warehouse_id = warehouseId;
+    Object.entries(extra).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') exportParams[k] = String(v);
+    });
 
     return (
         <form
@@ -108,12 +109,13 @@ export default function PeriodFilter({
             {children}
             <div className="ml-auto flex gap-2">
                 <Button type="submit">Tampilkan</Button>
-                <a
-                    href={exportHref}
-                    className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                >
-                    Export Excel
-                </a>
+                {availableColumns && availableColumns.length > 0 && (
+                    <ExportButton
+                        baseUrl={route(routeName, routeParams as never)}
+                        params={exportParams}
+                        columns={availableColumns}
+                    />
+                )}
             </div>
         </form>
     );

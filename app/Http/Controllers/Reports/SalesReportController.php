@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Warehouse;
+use App\Services\Reports\ColumnPicker;
 use App\Services\Reports\ReportExcelExporter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -16,15 +17,13 @@ use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
- * Laporan Penjualan READ-ONLY. Source: sales + sales_items + relasi.
- * Konsisten dengan P&L: hanya sale.status='completed' (void dikecualikan).
+ * Laporan Penjualan READ-ONLY.
  *
- * Multi-dimensi: produk / kategori / pelanggan / kasir / cabang.
- * Margin: subtotal − (qty × cost_snapshot) per item, group by produk/kategori.
+ * UI: aggregated multi-dim (per produk/kategori/pelanggan/kasir/cabang).
+ * Export: DETAIL per sale item dengan kolom kaya (sesuai spec) + pilih kolom.
+ * Margin: aggregated per produk/kategori (UI & export sama).
  *
- * WarehouseScope:
- *   - Owner/manager (warehouse_id NULL) → konsolidasi default, filter cabang opsional
- *   - Supervisor/cashier (warehouse_id != NULL) → forced ke warehouse mereka
+ * WarehouseScope: user fixed-to-WH FORCED ke warehouse-nya (anti-bypass).
  */
 class SalesReportController extends Controller
 {
@@ -38,25 +37,23 @@ class SalesReportController extends Controller
             ? $request->string('dim')->toString()
             : 'produk';
 
-        $rows = $this->aggregateBy($dim, $f);
+        $cols = $this->columnsSalesDetail();
 
         if ($request->boolean('export')) {
-            return $this->exportSales($dim, $rows, $f);
+            return $this->exportSalesDetail($f, $cols, $this->selectedColumns($request));
         }
+
+        $rows = $this->aggregateBy($dim, $f);
 
         return Inertia::render('Reports/Sales/MultiDim', [
             'filters' => array_merge($this->filtersOut($f), ['dim' => $dim]),
-            'warehouses' => $this->warehousesList($f),
+            'warehouses' => $this->warehousesList(),
             'rows' => $rows,
             'dims' => self::VALID_DIMS,
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
-    /**
-     * Margin per produk/kategori. Pakai cost_snapshot di sales_items (sudah
-     * di-freeze saat sale, jadi tidak terpengaruh kalau cost_avg berubah
-     * setelahnya).
-     */
     public function margin(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.sales.view');
@@ -64,19 +61,62 @@ class SalesReportController extends Controller
         $dim = $request->string('dim')->toString() === 'kategori' ? 'kategori' : 'produk';
 
         $rows = $this->marginRows($dim, $f);
+        $cols = $this->columnsMargin();
 
         if ($request->boolean('export')) {
-            return $this->exportMargin($dim, $rows, $f);
+            return $this->exportMargin($dim, $rows, $cols, $f, $this->selectedColumns($request));
         }
 
         return Inertia::render('Reports/Sales/Margin', [
             'filters' => array_merge($this->filtersOut($f), ['dim' => $dim]),
-            'warehouses' => $this->warehousesList($f),
+            'warehouses' => $this->warehousesList(),
             'rows' => $rows,
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
-    // ───────────────────────── aggregation ─────────────────────────
+    // ───────────────────────── columns ─────────────────────────
+
+    private function columnsSalesDetail(): array
+    {
+        return [
+            'invoice_no' => ['label' => 'No Invoice', 'default' => true, 'value' => fn ($r) => $r->invoice_no],
+            'date' => ['label' => 'Tanggal', 'default' => true, 'value' => fn ($r) => $r->date],
+            'warehouse_code' => ['label' => 'Kode Cabang', 'default' => false, 'value' => fn ($r) => $r->warehouse_code],
+            'warehouse_name' => ['label' => 'Cabang', 'default' => true, 'value' => fn ($r) => $r->warehouse_name],
+            'cashier_name' => ['label' => 'Kasir', 'default' => true, 'value' => fn ($r) => $r->cashier_name],
+            'customer_code' => ['label' => 'Kode Pelanggan', 'default' => false, 'value' => fn ($r) => $r->customer_code ?? ''],
+            'customer_name' => ['label' => 'Pelanggan', 'default' => true, 'value' => fn ($r) => $r->customer_name ?? '(umum)'],
+            'sku' => ['label' => 'SKU', 'default' => true, 'value' => fn ($r) => $r->sku],
+            'product_name' => ['label' => 'Produk', 'default' => true, 'value' => fn ($r) => $r->product_name],
+            'category_name' => ['label' => 'Kategori', 'default' => false, 'value' => fn ($r) => $r->category_name ?? ''],
+            'qty' => ['label' => 'Qty (base)', 'default' => true, 'value' => fn ($r) => (float) $r->qty],
+            'unit_code' => ['label' => 'Satuan', 'default' => false, 'value' => fn ($r) => $r->unit_code ?? ''],
+            'price' => ['label' => 'Harga Satuan', 'default' => true, 'value' => fn ($r) => (float) $r->price],
+            'item_discount' => ['label' => 'Diskon Item', 'default' => false, 'value' => fn ($r) => (float) $r->item_discount],
+            'item_subtotal' => ['label' => 'Subtotal Item', 'default' => true, 'value' => fn ($r) => (float) $r->item_subtotal],
+            'cost_snapshot' => ['label' => 'HPP per Unit', 'default' => false, 'value' => fn ($r) => (float) $r->cost_snapshot],
+            'sale_total' => ['label' => 'Total Sale', 'default' => true, 'value' => fn ($r) => (float) $r->sale_total],
+            'payment_method' => ['label' => 'Metode Bayar', 'default' => true, 'value' => fn ($r) => $r->payment_method ?? ''],
+            'payment_status' => ['label' => 'Status Bayar', 'default' => false, 'value' => fn ($r) => $r->payment_status],
+            'status' => ['label' => 'Status Sale', 'default' => false, 'value' => fn ($r) => $r->status],
+        ];
+    }
+
+    private function columnsMargin(): array
+    {
+        return [
+            'code' => ['label' => 'Kode', 'default' => true, 'value' => fn ($r) => $r['code']],
+            'label' => ['label' => 'Nama', 'default' => true, 'value' => fn ($r) => $r['label']],
+            'qty' => ['label' => 'Qty', 'default' => true, 'value' => fn ($r) => (float) $r['qty']],
+            'omzet' => ['label' => 'Omzet', 'default' => true, 'value' => fn ($r) => (float) $r['omzet']],
+            'hpp' => ['label' => 'HPP', 'default' => true, 'value' => fn ($r) => (float) $r['hpp']],
+            'margin' => ['label' => 'Margin', 'default' => true, 'value' => fn ($r) => (float) $r['margin']],
+            'margin_pct' => ['label' => 'Margin %', 'default' => true, 'value' => fn ($r) => (float) $r['margin_pct']],
+        ];
+    }
+
+    // ───────────────────────── aggregation (UI) ─────────────────────────
 
     private function aggregateBy(string $dim, array $f): array
     {
@@ -89,7 +129,6 @@ class SalesReportController extends Controller
             $q->where('s.warehouse_id', $f['warehouse_id']);
         }
 
-        // group + select sesuai dim
         switch ($dim) {
             case 'produk':
                 $q->join('products as p', 'p.id', '=', 'si.product_id')
@@ -197,7 +236,91 @@ class SalesReportController extends Controller
             ->all();
     }
 
-    // ───────────────────────── filter parsing ─────────────────────────
+    // ───────────────────────── exporters ─────────────────────────
+
+    private function exportSalesDetail(array $f, array $cols, ?array $selected): BinaryFileResponse
+    {
+        // 1 baris = 1 sale_item. JOIN ke semua master untuk kaya kolom.
+        $q = DB::table('sales as s')
+            ->join('sales_items as si', 'si.sale_id', '=', 's.id')
+            ->join('products as p', 'p.id', '=', 'si.product_id')
+            ->leftJoin('categories as c', 'c.id', '=', 'p.category_id')
+            ->leftJoin('customers as cu', 'cu.id', '=', 's.customer_id')
+            ->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
+            ->join('users as u', 'u.id', '=', 's.cashier_id')
+            ->leftJoin('master_units as mu', 'mu.id', '=', 'si.unit_id')
+            ->where('s.status', 'completed')
+            ->whereBetween('s.date', [$f['from'], $f['to']])
+            ->orderBy('s.date')
+            ->orderBy('s.id')
+            ->orderBy('si.id');
+
+        if ($f['warehouse_id']) {
+            $q->where('s.warehouse_id', $f['warehouse_id']);
+        }
+
+        $rows = $q->limit(50000)->get([
+            's.invoice_no', 's.date',
+            'w.code as warehouse_code', 'w.name as warehouse_name',
+            'u.name as cashier_name',
+            'cu.code as customer_code', 'cu.name as customer_name',
+            'p.sku', 'p.name as product_name', 'c.name as category_name',
+            'si.qty', 'mu.code as unit_code',
+            'si.price', 'si.discount_amount as item_discount',
+            'si.subtotal as item_subtotal', 'si.cost_snapshot',
+            's.total as sale_total', 's.payment_method', 's.payment_status', 's.status',
+        ]);
+
+        [$labels, $extractors] = ColumnPicker::pick($cols, $selected);
+        $data = ColumnPicker::rowsToArray($rows, $extractors);
+
+        $fromS = CarbonImmutable::parse($f['from'])->format('Ymd');
+        $toS = CarbonImmutable::parse($f['to'])->format('Ymd');
+
+        return (new ReportExcelExporter)
+            ->addSheet('Detail Penjualan', $labels, $data)
+            ->addSheet('Info', ['Item', 'Nilai'], [
+                ['Periode', CarbonImmutable::parse($f['from'])->toDateString().' s/d '.CarbonImmutable::parse($f['to'])->toDateString()],
+                ['Cabang', $f['warehouse_id'] ? (string) $f['warehouse_id'] : 'KONSOLIDASI'],
+                ['Sumber', 'sale_items level — 1 baris = 1 item per invoice'],
+                ['Catatan', 'Hanya sale berstatus completed (void dikecualikan)'],
+            ])
+            ->download('penjualan-detail_'.$fromS.'_'.$toS.'.xlsx');
+    }
+
+    private function exportMargin(string $dim, array $rows, array $cols, array $f, ?array $selected): BinaryFileResponse
+    {
+        [$labels, $extractors] = ColumnPicker::pick($cols, $selected);
+        $data = ColumnPicker::rowsToArray($rows, $extractors);
+
+        $fromS = CarbonImmutable::parse($f['from'])->format('Ymd');
+        $toS = CarbonImmutable::parse($f['to'])->format('Ymd');
+
+        return (new ReportExcelExporter)
+            ->addSheet('Margin per '.ucfirst($dim), $labels, $data)
+            ->addSheet('Info', ['Item', 'Nilai'], [
+                ['Dimensi', $dim],
+                ['Periode', CarbonImmutable::parse($f['from'])->toDateString().' s/d '.CarbonImmutable::parse($f['to'])->toDateString()],
+                ['Cabang', $f['warehouse_id'] ? (string) $f['warehouse_id'] : 'KONSOLIDASI'],
+                ['Sumber HPP', 'cost_snapshot di sales_items (frozen saat sale dibuat)'],
+            ])
+            ->download('margin-per-'.$dim.'_'.$fromS.'_'.$toS.'.xlsx');
+    }
+
+    // ───────────────────────── helpers ─────────────────────────
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function selectedColumns(Request $request): ?array
+    {
+        $cols = $request->input('columns');
+        if (! is_array($cols)) {
+            return null;
+        }
+
+        return array_values(array_filter($cols, fn ($v) => is_string($v) && $v !== ''));
+    }
 
     /**
      * @return array{from:string,to:string,warehouse_id:?int}
@@ -217,8 +340,8 @@ class SalesReportController extends Controller
 
         $user = Auth::user();
         $requestedWh = $request->integer('warehouse_id') ?: null;
+        // Anti-bypass: user fixed-to-WH FORCED ke warehouse-nya, request diabaikan.
         $whId = $user->warehouse_id ?? $requestedWh;
-        // Saat user fixed-to-WH, abaikan param warehouse_id (anti-bypass).
 
         return [
             'from' => $from->toDateTimeString(),
@@ -236,53 +359,13 @@ class SalesReportController extends Controller
         ];
     }
 
-    private function warehousesList(array $f)
+    private function warehousesList()
     {
-        // Kalau user fixed-to-WH, dropdown disable di UI; tetap kembalikan
-        // warehouse-nya supaya nama tampil.
         $user = Auth::user();
         if ($user->warehouse_id !== null) {
             return Warehouse::where('id', $user->warehouse_id)->get(['id', 'code', 'name']);
         }
 
         return Warehouse::active()->orderBy('name')->get(['id', 'code', 'name']);
-    }
-
-    // ───────────────────────── exporters ─────────────────────────
-
-    private function exportSales(string $dim, array $rows, array $f): BinaryFileResponse
-    {
-        $headers = [ucfirst($dim).' (Kode)', ucfirst($dim).' (Nama)', 'Jumlah Transaksi', 'Total Qty', 'Omzet'];
-        $data = array_map(fn ($r) => [
-            $r['code'], $r['label'], $r['trx_count'], $r['qty'], $r['omzet'],
-        ], $rows);
-
-        return (new ReportExcelExporter)
-            ->addSheet('Penjualan per '.ucfirst($dim), $headers, $data)
-            ->addSheet('Info', ['Item', 'Nilai'], [
-                ['Dimensi', $dim],
-                ['Periode', CarbonImmutable::parse($f['from'])->toDateString().' s/d '.CarbonImmutable::parse($f['to'])->toDateString()],
-                ['Cabang', $f['warehouse_id'] ? (string) $f['warehouse_id'] : 'KONSOLIDASI'],
-                ['Catatan', 'Hanya sale berstatus completed. Void dikecualikan.'],
-            ])
-            ->download('penjualan-per-'.$dim.'_'.CarbonImmutable::parse($f['from'])->format('Ymd').'_'.CarbonImmutable::parse($f['to'])->format('Ymd').'.xlsx');
-    }
-
-    private function exportMargin(string $dim, array $rows, array $f): BinaryFileResponse
-    {
-        $headers = [ucfirst($dim).' (Kode)', ucfirst($dim).' (Nama)', 'Qty', 'Omzet', 'HPP', 'Margin', 'Margin %'];
-        $data = array_map(fn ($r) => [
-            $r['code'], $r['label'], $r['qty'], $r['omzet'], $r['hpp'], $r['margin'], $r['margin_pct'],
-        ], $rows);
-
-        return (new ReportExcelExporter)
-            ->addSheet('Margin per '.ucfirst($dim), $headers, $data)
-            ->addSheet('Info', ['Item', 'Nilai'], [
-                ['Dimensi', $dim],
-                ['Periode', CarbonImmutable::parse($f['from'])->toDateString().' s/d '.CarbonImmutable::parse($f['to'])->toDateString()],
-                ['Cabang', $f['warehouse_id'] ? (string) $f['warehouse_id'] : 'KONSOLIDASI'],
-                ['Sumber HPP', 'cost_snapshot di sales_items (frozen saat sale dibuat)'],
-            ])
-            ->download('margin-per-'.$dim.'_'.CarbonImmutable::parse($f['from'])->format('Ymd').'_'.CarbonImmutable::parse($f['to'])->format('Ymd').'.xlsx');
     }
 }

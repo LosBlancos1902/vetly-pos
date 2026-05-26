@@ -14,9 +14,17 @@ interface NavItem {
     anyPermission?: string[];
 }
 
+interface SubGroup {
+    label: string;
+    items: NavItem[];
+}
+
 interface NavSection {
     label?: string;
-    items: NavItem[];
+    /** Direct items. Mutually exclusive with `subgroups`. */
+    items?: NavItem[];
+    /** Nested collapsible sub-grup di dalam grup ini. Mutually exclusive dgn `items`. */
+    subgroups?: SubGroup[];
 }
 
 export default function Authenticated({
@@ -172,90 +180,127 @@ export default function Authenticated({
         },
         {
             label: 'Laporan',
-            items: [
+            subgroups: [
                 {
-                    label: 'Laba Rugi (P&L)',
-                    href: route('reports.profit_loss'),
-                    routeMatch: 'reports.profit_loss',
-                    permission: 'reports.financial.view',
+                    label: 'Keuangan',
+                    items: [
+                        {
+                            label: 'Laba Rugi (P&L)',
+                            href: route('reports.profit_loss'),
+                            routeMatch: 'reports.profit_loss',
+                            permission: 'reports.financial.view',
+                        },
+                        {
+                            label: 'Neraca',
+                            href: route('reports.balance_sheet'),
+                            routeMatch: 'reports.balance_sheet',
+                            permission: 'reports.financial.view',
+                        },
+                        {
+                            label: 'Buku Besar',
+                            href: route('reports.general_ledger'),
+                            routeMatch: 'reports.general_ledger',
+                            permission: 'reports.financial.view',
+                        },
+                        {
+                            label: 'Trial Balance',
+                            href: route('reports.trial_balance'),
+                            routeMatch: 'reports.trial_balance',
+                            permission: 'reports.financial.view',
+                        },
+                        {
+                            label: 'Jurnal Umum',
+                            href: route('reports.journal_log'),
+                            routeMatch: 'reports.journal_log',
+                            permission: 'reports.financial.view',
+                        },
+                    ],
                 },
                 {
-                    label: 'Neraca',
-                    href: route('reports.balance_sheet'),
-                    routeMatch: 'reports.balance_sheet',
-                    permission: 'reports.financial.view',
-                },
-                {
-                    label: 'Buku Besar',
-                    href: route('reports.general_ledger'),
-                    routeMatch: 'reports.general_ledger',
-                    permission: 'reports.financial.view',
-                },
-                {
-                    label: 'Trial Balance',
-                    href: route('reports.trial_balance'),
-                    routeMatch: 'reports.trial_balance',
-                    permission: 'reports.financial.view',
-                },
-                {
-                    label: 'Jurnal Umum',
-                    href: route('reports.journal_log'),
-                    routeMatch: 'reports.journal_log',
-                    permission: 'reports.financial.view',
-                },
-                {
-                    label: 'Mutasi Kas & Bank',
-                    href: route('reports.cash_bank'),
-                    routeMatch: 'reports.cash_bank',
-                    permission: 'reports.financial.view',
-                },
-                {
-                    label: 'Shift Kasir',
-                    href: route('reports.shifts'),
-                    routeMatch: 'reports.shifts',
-                    permission: 'reports.financial.view',
+                    label: 'Kas & Bank',
+                    items: [
+                        {
+                            label: 'Mutasi Kas & Bank',
+                            href: route('reports.cash_bank'),
+                            routeMatch: 'reports.cash_bank',
+                            permission: 'reports.financial.view',
+                        },
+                        {
+                            label: 'Shift Kasir',
+                            href: route('reports.shifts'),
+                            routeMatch: 'reports.shifts',
+                            permission: 'reports.financial.view',
+                        },
+                    ],
                 },
                 {
                     label: 'Penjualan',
-                    href: route('reports.sales'),
-                    routeMatch: 'reports.sales',
-                    permission: 'reports.sales.view',
-                },
-                {
-                    label: 'Margin Penjualan',
-                    href: route('reports.sales_margin'),
-                    routeMatch: 'reports.sales_margin',
-                    permission: 'reports.sales.view',
+                    items: [
+                        {
+                            label: 'Penjualan (multi-dimensi)',
+                            href: route('reports.sales'),
+                            routeMatch: 'reports.sales',
+                            permission: 'reports.sales.view',
+                        },
+                        {
+                            label: 'Margin Penjualan',
+                            href: route('reports.sales_margin'),
+                            routeMatch: 'reports.sales_margin',
+                            permission: 'reports.sales.view',
+                        },
+                    ],
                 },
                 {
                     label: 'Pembelian',
-                    href: route('reports.purchasing'),
-                    routeMatch: 'reports.purchasing',
-                    permission: 'reports.purchasing.view',
+                    items: [
+                        {
+                            label: 'Pembelian per Supplier/Produk',
+                            href: route('reports.purchasing'),
+                            routeMatch: 'reports.purchasing',
+                            permission: 'reports.purchasing.view',
+                        },
+                        {
+                            label: 'AP Aging (Hutang)',
+                            href: route('reports.ap_aging'),
+                            routeMatch: 'reports.ap_aging',
+                            permission: 'reports.purchasing.view',
+                        },
+                        {
+                            label: 'Daftar AP',
+                            href: route('reports.ap_list'),
+                            routeMatch: 'reports.ap_list',
+                            permission: 'reports.purchasing.view',
+                        },
+                    ],
                 },
                 {
-                    label: 'AP Aging (Hutang)',
-                    href: route('reports.ap_aging'),
-                    routeMatch: 'reports.ap_aging',
-                    permission: 'reports.purchasing.view',
-                },
-                {
-                    label: 'Nilai Stok',
-                    href: route('reports.inventory_valuation'),
-                    routeMatch: 'reports.inventory_valuation',
-                    permission: 'reports.inventory.view',
-                },
-                {
-                    label: 'Stok Minimum',
-                    href: route('reports.inventory_min_stock'),
-                    routeMatch: 'reports.inventory_min_stock',
-                    permission: 'reports.inventory.view',
-                },
-                {
-                    label: 'Mutasi Stok',
-                    href: route('reports.inventory_movements'),
-                    routeMatch: 'reports.inventory_movements',
-                    permission: 'reports.inventory.view',
+                    label: 'Persediaan',
+                    items: [
+                        {
+                            label: 'Nilai Stok',
+                            href: route('reports.inventory_valuation'),
+                            routeMatch: 'reports.inventory_valuation',
+                            permission: 'reports.inventory.view',
+                        },
+                        {
+                            label: 'Stok Minimum',
+                            href: route('reports.inventory_min_stock'),
+                            routeMatch: 'reports.inventory_min_stock',
+                            permission: 'reports.inventory.view',
+                        },
+                        {
+                            label: 'Mutasi Stok',
+                            href: route('reports.inventory_movements'),
+                            routeMatch: 'reports.inventory_movements',
+                            permission: 'reports.inventory.view',
+                        },
+                        {
+                            label: 'Kartu Stok',
+                            href: route('inventory.stock'),
+                            routeMatch: 'inventory.stock_card',
+                            permission: 'inventory.view',
+                        },
+                    ],
                 },
             ],
         },
@@ -284,25 +329,54 @@ export default function Authenticated({
         },
     ];
 
-    const visibleSections = sections
-        .map((s) => ({
-            ...s,
-            items: s.items.filter((i) => {
-                if (i.anyPermission) return i.anyPermission.some(can);
-                if (i.permission) return can(i.permission);
-                return true;
-            }),
-        }))
-        .filter((s) => s.items.length > 0);
+    const itemVisible = (i: NavItem) => {
+        if (i.anyPermission) return i.anyPermission.some(can);
+        if (i.permission) return can(i.permission);
+        return true;
+    };
 
-    // Collapsible groups — state resets on each mount (no persistence by design).
-    // Groups containing the active route auto-expand on initial render.
+    const visibleSections = sections
+        .map((s): NavSection => {
+            if (s.subgroups) {
+                return {
+                    ...s,
+                    subgroups: s.subgroups
+                        .map((sg) => ({
+                            ...sg,
+                            items: sg.items.filter(itemVisible),
+                        }))
+                        .filter((sg) => sg.items.length > 0),
+                };
+            }
+            return {
+                ...s,
+                items: (s.items ?? []).filter(itemVisible),
+            };
+        })
+        .filter(
+            (s) =>
+                (s.items && s.items.length > 0) ||
+                (s.subgroups && s.subgroups.length > 0),
+        );
+
+    // Collapsible groups & subgroups — state per (sectionLabel) atau
+    // (sectionLabel/subgroupLabel) key. Auto-expand kalau ada route aktif di
+    // dalamnya.
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
         const expanded = new Set<string>();
         visibleSections.forEach((s) => {
-            if (s.label && s.items.some((i) => route().current(i.routeMatch))) {
+            if (!s.label) return;
+            // Flat items
+            if (s.items?.some((i) => route().current(i.routeMatch))) {
                 expanded.add(s.label);
             }
+            // Nested subgroups
+            s.subgroups?.forEach((sg) => {
+                if (sg.items.some((i) => route().current(i.routeMatch))) {
+                    expanded.add(s.label!);
+                    expanded.add(`${s.label}/${sg.label}`);
+                }
+            });
         });
         return expanded;
     });
@@ -333,6 +407,26 @@ export default function Authenticated({
         );
     }
 
+    function Chevron({ expanded }: { expanded: boolean }) {
+        return (
+            <svg
+                className={
+                    'h-3 w-3 transform transition-transform duration-200 ' +
+                    (expanded ? 'rotate-90' : '')
+                }
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+            >
+                <path
+                    fillRule="evenodd"
+                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                    clipRule="evenodd"
+                />
+            </svg>
+        );
+    }
+
     const sidebarContent = (
         <>
             <div className="flex h-16 shrink-0 items-center border-b border-gray-100 px-4">
@@ -354,28 +448,45 @@ export default function Authenticated({
                                     className="mb-2 flex w-full items-center justify-between px-4 text-xs font-semibold uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-600"
                                 >
                                     <span>{section.label}</span>
-                                    <svg
-                                        className={
-                                            'h-3 w-3 transform transition-transform duration-200 ' +
-                                            (expanded ? 'rotate-90' : '')
-                                        }
-                                        viewBox="0 0 20 20"
-                                        fill="currentColor"
-                                        aria-hidden="true"
-                                    >
-                                        <path
-                                            fillRule="evenodd"
-                                            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                                            clipRule="evenodd"
-                                        />
-                                    </svg>
+                                    <Chevron expanded={expanded} />
                                 </button>
                             )}
-                            {expanded && (
+                            {expanded && section.items && (
                                 <div className="space-y-0.5">
                                     {section.items.map((item) => (
                                         <NavItemLink key={item.label} item={item} />
                                     ))}
+                                </div>
+                            )}
+                            {expanded && section.subgroups && (
+                                <div className="space-y-1">
+                                    {section.subgroups.map((sg) => {
+                                        const sgKey = `${section.label}/${sg.label}`;
+                                        const sgExpanded = expandedGroups.has(sgKey);
+                                        return (
+                                            <div key={sg.label}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleGroup(sgKey)}
+                                                    aria-expanded={sgExpanded}
+                                                    className="flex w-full items-center justify-between px-6 py-1.5 text-xs font-medium uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-800"
+                                                >
+                                                    <span>{sg.label}</span>
+                                                    <Chevron expanded={sgExpanded} />
+                                                </button>
+                                                {sgExpanded && (
+                                                    <div className="space-y-0.5 pl-2">
+                                                        {sg.items.map((item) => (
+                                                            <NavItemLink
+                                                                key={item.label}
+                                                                item={item}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>

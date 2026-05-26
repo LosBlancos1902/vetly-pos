@@ -11,6 +11,7 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, rupiah } from '@/lib/utils';
 import PeriodFilter from '../_components/PeriodFilter';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface CoaLite {
     id: number;
@@ -41,9 +42,10 @@ interface Paginated<T> {
 interface Props {
     filters: { from: string; to: string; warehouse_id: number | null };
     journals: Paginated<Journal>;
+    available_columns: ColumnOption[];
 }
 
-export default function JournalLog({ filters, journals }: Props) {
+export default function JournalLog({ filters, journals, available_columns }: Props) {
     return (
         <AuthenticatedLayout
             header={<h2 className="text-xl font-semibold">Jurnal Umum</h2>}
@@ -55,6 +57,7 @@ export default function JournalLog({ filters, journals }: Props) {
                     from={filters.from}
                     to={filters.to}
                     showWarehouse={false}
+                    availableColumns={available_columns}
                 />
 
                 <Card>

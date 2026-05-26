@@ -14,6 +14,8 @@ import {
 } from '@/Components/ui/table';
 import { formatQty } from '@/lib/utils';
 import { type FormEvent } from 'react';
+import ExportButton from '../_components/ExportButton';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Row {
     product_id: number;
@@ -38,9 +40,10 @@ interface Props {
     filters: { warehouse_id: number | null };
     warehouses: Warehouse[];
     rows: Row[];
+    available_columns: ColumnOption[];
 }
 
-export default function MinStock({ filters, warehouses, rows }: Props) {
+export default function MinStock({ filters, warehouses, rows, available_columns }: Props) {
     function submit(e: FormEvent) {
         e.preventDefault();
         const fd = new FormData(e.target as HTMLFormElement);
@@ -51,12 +54,6 @@ export default function MinStock({ filters, warehouses, rows }: Props) {
         router.get(route('reports.inventory_min_stock'), params, { preserveScroll: true });
     }
 
-    const exportHref = (() => {
-        const p = new URLSearchParams();
-        if (filters.warehouse_id) p.set('warehouse_id', String(filters.warehouse_id));
-        p.set('export', '1');
-        return `${route('reports.inventory_min_stock')}?${p.toString()}`;
-    })();
 
     return (
         <AuthenticatedLayout
@@ -88,12 +85,11 @@ export default function MinStock({ filters, warehouses, rows }: Props) {
                     )}
                     <div className="ml-auto flex gap-2">
                         <Button type="submit">Tampilkan</Button>
-                        <a
-                            href={exportHref}
-                            className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                        >
-                            Export Excel
-                        </a>
+                        <ExportButton
+                            baseUrl={route('reports.inventory_min_stock')}
+                            params={{ warehouse_id: filters.warehouse_id }}
+                            columns={available_columns}
+                        />
                     </div>
                 </form>
 

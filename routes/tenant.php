@@ -287,6 +287,7 @@ Route::middleware([
             Route::middleware('can:reports.purchasing.view')->group(function () {
                 Route::get('/purchasing', [PurchasingReportController::class, 'index'])->name('purchasing');
                 Route::get('/purchasing/ap-aging', [PurchasingReportController::class, 'apAging'])->name('ap_aging');
+                Route::get('/purchasing/ap-list', [PurchasingReportController::class, 'apList'])->name('ap_list');
             });
 
             // PERSEDIAAN — manager + supervisor

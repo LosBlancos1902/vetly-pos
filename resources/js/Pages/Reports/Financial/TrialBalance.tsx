@@ -11,6 +11,7 @@ import {
 } from '@/Components/ui/table';
 import { rupiah } from '@/lib/utils';
 import PeriodFilter from '../_components/PeriodFilter';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Row {
     id: number;
@@ -27,9 +28,10 @@ interface Props {
     filters: { from: string; to: string; warehouse_id: number | null };
     rows: Row[];
     totals: { debit: number; credit: number; balanced: boolean };
+    available_columns: ColumnOption[];
 }
 
-export default function TrialBalance({ filters, rows, totals }: Props) {
+export default function TrialBalance({ filters, rows, totals, available_columns }: Props) {
     return (
         <AuthenticatedLayout
             header={<h2 className="text-xl font-semibold">Trial Balance (Neraca Saldo)</h2>}
@@ -41,6 +43,7 @@ export default function TrialBalance({ filters, rows, totals }: Props) {
                     from={filters.from}
                     to={filters.to}
                     showWarehouse={false}
+                    availableColumns={available_columns}
                 />
 
                 {!totals.balanced && (

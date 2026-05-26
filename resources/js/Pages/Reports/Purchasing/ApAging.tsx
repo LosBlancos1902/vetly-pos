@@ -15,6 +15,8 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, rupiah } from '@/lib/utils';
 import { type FormEvent } from 'react';
+import ExportButton from '../_components/ExportButton';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Row {
     ap_id: number;
@@ -38,9 +40,16 @@ interface Props {
     rows: Row[];
     buckets: Record<'0-30' | '31-60' | '61-90' | '>90', number>;
     total_outstanding: number;
+    available_columns: ColumnOption[];
 }
 
-export default function ApAging({ filters, rows, buckets, total_outstanding }: Props) {
+export default function ApAging({
+    filters,
+    rows,
+    buckets,
+    total_outstanding,
+    available_columns,
+}: Props) {
     function submit(e: FormEvent) {
         e.preventDefault();
         const fd = new FormData(e.target as HTMLFormElement);
@@ -51,7 +60,6 @@ export default function ApAging({ filters, rows, buckets, total_outstanding }: P
         router.get(route('reports.ap_aging'), params, { preserveScroll: true });
     }
 
-    const exportHref = `${route('reports.ap_aging')}?as_of=${filters.as_of}&export=1`;
 
     return (
         <AuthenticatedLayout
@@ -69,12 +77,11 @@ export default function ApAging({ filters, rows, buckets, total_outstanding }: P
                     </div>
                     <div className="ml-auto flex gap-2">
                         <Button type="submit">Tampilkan</Button>
-                        <a
-                            href={exportHref}
-                            className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                        >
-                            Export Excel
-                        </a>
+                        <ExportButton
+                            baseUrl={route('reports.ap_aging')}
+                            params={{ as_of: filters.as_of }}
+                            columns={available_columns}
+                        />
                     </div>
                 </form>
 

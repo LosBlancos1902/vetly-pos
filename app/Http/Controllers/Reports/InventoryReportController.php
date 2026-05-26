@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Warehouse;
+use App\Services\Reports\ColumnPicker;
 use App\Services\Reports\ReportExcelExporter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -16,19 +17,10 @@ use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
- * Laporan Persediaan READ-ONLY.
- * Source: inventories (qty + cost_avg per WH), stock_movements, products.
- *
- * Nilai stok = qty × cost_avg (snapshot saat ini). Untuk "nilai stok per
- * tanggal lampau", butuh balance_cost_after × balance_qty_after dari
- * movement terakhir ≤ tanggal — bisa di-add nanti, untuk v1 cukup snapshot.
+ * Laporan Persediaan READ-ONLY dengan column picker.
  */
 class InventoryReportController extends Controller
 {
-    /**
-     * Nilai Stok — qty × cost_avg per (produk, warehouse).
-     * Total per warehouse + grand total.
-     */
     public function valuation(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.inventory.view');
@@ -64,16 +56,14 @@ class InventoryReportController extends Controller
 
         $totalNilai = array_sum(array_map(fn ($r) => $r->nilai, $rows));
         $totalQty = array_sum(array_map(fn ($r) => $r->qty, $rows));
+        $cols = $this->columnsValuation();
 
         if ($request->boolean('export')) {
+            [$labels, $extractors] = ColumnPicker::pick($cols, $this->selectedColumns($request));
+            $data = ColumnPicker::rowsToArray($rows, $extractors);
+
             return (new ReportExcelExporter)
-                ->addSheet('Nilai Stok', [
-                    'Kode WH', 'Nama WH', 'SKU', 'Nama Produk', 'Tipe',
-                    'Qty', 'Cost Rata-rata', 'Nilai Stok',
-                ], array_map(fn ($r) => [
-                    $r->warehouse_code, $r->warehouse_name, $r->sku, $r->product_name, $r->type,
-                    $r->qty, $r->cost_avg, $r->nilai,
-                ], $rows))
+                ->addSheet('Nilai Stok', $labels, $data)
                 ->addSheet('Ringkasan', ['Item', 'Nilai'], [
                     ['Total Qty', $totalQty],
                     ['Total Nilai Stok', $totalNilai],
@@ -93,12 +83,10 @@ class InventoryReportController extends Controller
                 'qty' => $totalQty,
                 'nilai' => $totalNilai,
             ],
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
-    /**
-     * Stok Minimum — list inventory dimana qty ≤ min_stock (alert).
-     */
     public function minStock(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.inventory.view');
@@ -129,15 +117,14 @@ class InventoryReportController extends Controller
             return $r;
         })->all();
 
+        $cols = $this->columnsMinStock();
+
         if ($request->boolean('export')) {
+            [$labels, $extractors] = ColumnPicker::pick($cols, $this->selectedColumns($request));
+            $data = ColumnPicker::rowsToArray($rows, $extractors);
+
             return (new ReportExcelExporter)
-                ->addSheet('Stok Minimum', [
-                    'Kode WH', 'Nama WH', 'SKU', 'Nama Produk',
-                    'Qty Sekarang', 'Min Stock', 'Max Stock', 'Kekurangan',
-                ], array_map(fn ($r) => [
-                    $r->warehouse_code, $r->warehouse_name, $r->sku, $r->product_name,
-                    $r->qty, $r->min_stock, $r->max_stock, $r->shortage,
-                ], $rows))
+                ->addSheet('Stok Minimum', $labels, $data)
                 ->download('stok-minimum_'.CarbonImmutable::now()->format('Ymd').'.xlsx');
         }
 
@@ -145,16 +132,10 @@ class InventoryReportController extends Controller
             'filters' => $this->filtersOut($f),
             'warehouses' => $this->warehousesList(),
             'rows' => $rows,
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
-    /**
-     * Mutasi Stok periode — list dari stock_movements dengan filter
-     * tanggal/warehouse/produk/type.
-     *
-     * Risk: periode panjang bisa berat. Default 30 hari, paginated 100/page
-     * di UI. Export ambil semua tapi maksimum 50k row guard.
-     */
     public function movements(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.inventory.view');
@@ -180,6 +161,8 @@ class InventoryReportController extends Controller
             $q->where('m.product_id', $productId);
         }
 
+        $cols = $this->columnsMovements();
+
         if ($request->boolean('export')) {
             $rows = $q->limit(50000)->get([
                 'm.id', 'm.created_at', 'm.type',
@@ -189,26 +172,15 @@ class InventoryReportController extends Controller
                 'm.ref_type', 'm.ref_id', 'm.reason', 'm.notes',
                 'u.name as user_name',
             ]);
+            [$labels, $extractors] = ColumnPicker::pick($cols, $this->selectedColumns($request));
+            $data = ColumnPicker::rowsToArray($rows, $extractors);
 
             return (new ReportExcelExporter)
-                ->addSheet('Mutasi Stok', [
-                    'ID', 'Waktu', 'Tipe', 'SKU', 'Produk',
-                    'Kode WH', 'Nama WH',
-                    'Qty', 'Cost', 'Saldo Qty', 'Saldo Cost',
-                    'Ref Type', 'Ref ID', 'Reason', 'Notes', 'User',
-                ], $rows->map(fn ($r) => [
-                    (int) $r->id, $r->created_at, $r->type, $r->sku, $r->product_name,
-                    $r->warehouse_code, $r->warehouse_name,
-                    (float) $r->qty, (float) $r->cost,
-                    (float) $r->balance_qty_after, (float) $r->balance_cost_after,
-                    $r->ref_type ?? '', $r->ref_id ?? '', $r->reason ?? '', $r->notes ?? '',
-                    $r->user_name ?? '',
-                ])->all())
+                ->addSheet('Mutasi Stok', $labels, $data)
                 ->download('mutasi-stok_'.CarbonImmutable::parse($f['from'])->format('Ymd').'_'.CarbonImmutable::parse($f['to'])->format('Ymd').'.xlsx');
         }
 
-        // Paginated untuk UI — explicit kolom, JANGAN SELECT * krn p.type & m.type
-        // namanya sama dan p.type akan men-shadow m.type di hasil.
+        // Explicit kolom utk paginate — p.type & m.type bentrok kalau SELECT *.
         $movements = $q->paginate(100, [
             'm.id', 'm.created_at', 'm.type',
             'm.product_id', 'p.sku', 'p.name as product_name',
@@ -231,10 +203,75 @@ class InventoryReportController extends Controller
                 'opname_plus', 'opname_minus', 'compound_in', 'compound_out',
                 'service_consumption',
             ],
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
+    // ───────────────────────── columns ─────────────────────────
+
+    private function columnsValuation(): array
+    {
+        return [
+            'warehouse_code' => ['label' => 'Kode Cabang', 'default' => false, 'value' => fn ($r) => $r->warehouse_code],
+            'warehouse_name' => ['label' => 'Cabang', 'default' => true, 'value' => fn ($r) => $r->warehouse_name],
+            'sku' => ['label' => 'SKU', 'default' => true, 'value' => fn ($r) => $r->sku],
+            'product_name' => ['label' => 'Produk', 'default' => true, 'value' => fn ($r) => $r->product_name],
+            'type' => ['label' => 'Tipe Produk', 'default' => false, 'value' => fn ($r) => $r->type],
+            'qty' => ['label' => 'Qty', 'default' => true, 'value' => fn ($r) => (float) $r->qty],
+            'cost_avg' => ['label' => 'Cost Rata-rata', 'default' => true, 'value' => fn ($r) => (float) $r->cost_avg],
+            'nilai' => ['label' => 'Nilai Stok', 'default' => true, 'value' => fn ($r) => (float) $r->nilai],
+        ];
+    }
+
+    private function columnsMinStock(): array
+    {
+        return [
+            'warehouse_code' => ['label' => 'Kode Cabang', 'default' => false, 'value' => fn ($r) => $r->warehouse_code],
+            'warehouse_name' => ['label' => 'Cabang', 'default' => true, 'value' => fn ($r) => $r->warehouse_name],
+            'sku' => ['label' => 'SKU', 'default' => true, 'value' => fn ($r) => $r->sku],
+            'product_name' => ['label' => 'Produk', 'default' => true, 'value' => fn ($r) => $r->product_name],
+            'qty' => ['label' => 'Qty Sekarang', 'default' => true, 'value' => fn ($r) => (float) $r->qty],
+            'min_stock' => ['label' => 'Min Stock', 'default' => true, 'value' => fn ($r) => (float) $r->min_stock],
+            'max_stock' => ['label' => 'Max Stock', 'default' => false, 'value' => fn ($r) => $r->max_stock !== null ? (float) $r->max_stock : ''],
+            'shortage' => ['label' => 'Kekurangan', 'default' => true, 'value' => fn ($r) => (float) $r->shortage],
+        ];
+    }
+
+    private function columnsMovements(): array
+    {
+        return [
+            'created_at' => ['label' => 'Waktu', 'default' => true, 'value' => fn ($r) => $r->created_at],
+            'type' => ['label' => 'Tipe', 'default' => true, 'value' => fn ($r) => $r->type],
+            'sku' => ['label' => 'SKU', 'default' => true, 'value' => fn ($r) => $r->sku],
+            'product_name' => ['label' => 'Produk', 'default' => true, 'value' => fn ($r) => $r->product_name],
+            'warehouse_code' => ['label' => 'Kode Cabang', 'default' => false, 'value' => fn ($r) => $r->warehouse_code],
+            'warehouse_name' => ['label' => 'Cabang', 'default' => true, 'value' => fn ($r) => $r->warehouse_name],
+            'qty' => ['label' => 'Qty', 'default' => true, 'value' => fn ($r) => (float) $r->qty],
+            'cost' => ['label' => 'Cost', 'default' => true, 'value' => fn ($r) => (float) $r->cost],
+            'balance_qty_after' => ['label' => 'Saldo Qty', 'default' => true, 'value' => fn ($r) => (float) $r->balance_qty_after],
+            'balance_cost_after' => ['label' => 'Saldo Cost', 'default' => false, 'value' => fn ($r) => (float) $r->balance_cost_after],
+            'ref_type' => ['label' => 'Ref Type', 'default' => true, 'value' => fn ($r) => $r->ref_type ?? ''],
+            'ref_id' => ['label' => 'Ref ID', 'default' => false, 'value' => fn ($r) => $r->ref_id ?? ''],
+            'reason' => ['label' => 'Reason', 'default' => false, 'value' => fn ($r) => $r->reason ?? ''],
+            'notes' => ['label' => 'Notes', 'default' => false, 'value' => fn ($r) => $r->notes ?? ''],
+            'user_name' => ['label' => 'User', 'default' => true, 'value' => fn ($r) => $r->user_name ?? ''],
+        ];
+    }
+
     // ───────────────────────── helpers ─────────────────────────
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function selectedColumns(Request $request): ?array
+    {
+        $cols = $request->input('columns');
+        if (! is_array($cols)) {
+            return null;
+        }
+
+        return array_values(array_filter($cols, fn ($v) => is_string($v) && $v !== ''));
+    }
 
     /**
      * @return array{from:string,to:string,warehouse_id:?int}

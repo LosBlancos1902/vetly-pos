@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import ExportButton from '@/Pages/Reports/_components/ExportButton';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
@@ -62,6 +63,12 @@ interface Filters {
     to: string | null;
 }
 
+interface ColumnOpt {
+    key: string;
+    label: string;
+    default: boolean;
+}
+
 interface Props {
     product: Product;
     warehouses: Warehouse[];
@@ -70,6 +77,7 @@ interface Props {
     currentBalance: Balance | null;
     movements: Movement[];
     filters: Filters;
+    available_columns: ColumnOpt[];
 }
 
 // Movements that ADD to inventory show qty in the "in" column; the rest go to "out".
@@ -129,6 +137,7 @@ export default function StockCard({
     currentBalance,
     movements,
     filters,
+    available_columns,
 }: Props) {
     const [warehouseId, setWarehouseId] = useState<string>(
         currentWarehouseId ? String(currentWarehouseId) : '',
@@ -243,20 +252,16 @@ export default function StockCard({
                                     Reset
                                 </Button>
                                 {warehouseId && (
-                                    <a
-                                        href={
-                                            route('inventory.stock_card.export', product.id) +
-                                            '?' +
-                                            new URLSearchParams({
-                                                warehouse_id: warehouseId,
-                                                ...(from ? { from } : {}),
-                                                ...(to ? { to } : {}),
-                                            }).toString()
-                                        }
+                                    <ExportButton
+                                        baseUrl={route('inventory.stock_card.export', product.id)}
+                                        params={{
+                                            warehouse_id: warehouseId,
+                                            from: from || null,
+                                            to: to || null,
+                                        }}
+                                        columns={available_columns}
                                         className="inline-flex min-h-11 items-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"
-                                    >
-                                        Export Excel
-                                    </a>
+                                    />
                                 )}
                             </div>
                         </form>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Tenant\Inventory;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\Warehouse;
+use App\Services\Reports\ColumnPicker;
 use App\Services\Reports\ReportExcelExporter;
 use App\Services\StockCard;
 use Illuminate\Http\Request;
@@ -79,6 +80,7 @@ class StockCardController extends Controller
                 'from' => $filters['from'] ?? null,
                 'to' => $filters['to'] ?? null,
             ],
+            'available_columns' => ColumnPicker::publicMeta($this->exportColumns()),
         ]);
     }
 
@@ -101,35 +103,58 @@ class StockCardController extends Controller
         $to = ! empty($filters['to']) ? Carbon::parse($filters['to'])->endOfDay() : null;
 
         $movements = $stockCard->for($product, $warehouse, $from, $to)->load('user:id,name');
+        $cols = $this->exportColumns();
 
-        $rows = $movements->map(fn ($m) => [
-            $m->created_at?->toDateTimeString() ?? '',
-            $m->type,
-            (float) $m->qty,
-            $m->unitInput?->code ?? '',
-            (float) $m->cost,
-            (float) $m->balance_qty_after,
-            (float) $m->balance_cost_after,
-            $m->ref_type ?? '',
-            $m->ref_id ?? '',
-            $m->reason ?? '',
-            $m->notes ?? '',
-            $m->user?->name ?? '',
-        ])->all();
+        $selectedRaw = $request->input('columns');
+        $selected = is_array($selectedRaw)
+            ? array_values(array_filter($selectedRaw, fn ($v) => is_string($v) && $v !== ''))
+            : null;
+
+        [$labels, $extractors] = ColumnPicker::pick($cols, $selected);
+        $rows = ColumnPicker::rowsToArray($movements, $extractors);
 
         $filename = 'kartu-stok_'.$product->sku.'_'.$warehouse->code.'.xlsx';
 
         return (new ReportExcelExporter)
-            ->addSheet('Kartu Stok', [
-                'Waktu', 'Tipe', 'Qty (base)', 'Satuan Input', 'Cost',
-                'Saldo Qty', 'Saldo Cost', 'Ref Type', 'Ref ID',
-                'Reason', 'Notes', 'User',
-            ], $rows)
+            ->addSheet('Kartu Stok', $labels, $rows)
             ->addSheet('Info', ['Item', 'Nilai'], [
                 ['Produk', $product->sku.' — '.$product->name],
                 ['Gudang', $warehouse->code.' — '.$warehouse->name],
                 ['Periode', ($filters['from'] ?? 'awal').' s/d '.($filters['to'] ?? 'sekarang')],
             ])
             ->download($filename);
+    }
+
+    /**
+     * Column definitions untuk Excel export Kartu Stok.
+     */
+    private function exportColumns(): array
+    {
+        return [
+            'created_at' => ['label' => 'Waktu', 'default' => true,
+                'value' => fn ($m) => $m->created_at?->toDateTimeString() ?? ''],
+            'type' => ['label' => 'Tipe', 'default' => true,
+                'value' => fn ($m) => $m->type],
+            'qty' => ['label' => 'Qty (base)', 'default' => true,
+                'value' => fn ($m) => (float) $m->qty],
+            'unit_input' => ['label' => 'Satuan Input', 'default' => false,
+                'value' => fn ($m) => $m->unitInput?->code ?? ''],
+            'cost' => ['label' => 'Cost', 'default' => true,
+                'value' => fn ($m) => (float) $m->cost],
+            'balance_qty_after' => ['label' => 'Saldo Qty', 'default' => true,
+                'value' => fn ($m) => (float) $m->balance_qty_after],
+            'balance_cost_after' => ['label' => 'Saldo Cost', 'default' => false,
+                'value' => fn ($m) => (float) $m->balance_cost_after],
+            'ref_type' => ['label' => 'Ref Type', 'default' => true,
+                'value' => fn ($m) => $m->ref_type ?? ''],
+            'ref_id' => ['label' => 'Ref ID', 'default' => false,
+                'value' => fn ($m) => $m->ref_id ?? ''],
+            'reason' => ['label' => 'Reason', 'default' => false,
+                'value' => fn ($m) => $m->reason ?? ''],
+            'notes' => ['label' => 'Notes', 'default' => false,
+                'value' => fn ($m) => $m->notes ?? ''],
+            'user' => ['label' => 'User', 'default' => true,
+                'value' => fn ($m) => $m->user?->name ?? ''],
+        ];
     }
 }

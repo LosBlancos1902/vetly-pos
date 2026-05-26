@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Warehouse;
+use App\Services\Reports\ColumnPicker;
 use App\Services\Reports\ReportExcelExporter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -17,10 +18,11 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Laporan Pembelian READ-ONLY.
- * Source: goods_receipts + goods_receipt_items + suppliers, accounts_payable.
  *
- * Pembelian dihitung dari GR (goods receipt), bukan PO — karena GR adalah
- * event yang menambah aset/utang. PO yang belum diterima tidak masuk.
+ * Endpoints:
+ *   - index: Pembelian per supplier/produk (aggregated dari goods_receipt_items)
+ *   - apAging: AP Aging — bucket umur hutang
+ *   - apList: Daftar AP semua (termasuk paid), filter periode received_at + status
  */
 class PurchasingReportController extends Controller
 {
@@ -33,9 +35,10 @@ class PurchasingReportController extends Controller
         $dim = $request->string('dim')->toString() === 'produk' ? 'produk' : 'supplier';
 
         $rows = $this->purchaseRows($dim, $f);
+        $cols = $this->columnsPurchase($dim);
 
         if ($request->boolean('export')) {
-            return $this->exportPurchases($dim, $rows, $f);
+            return $this->exportPurchases($dim, $rows, $cols, $f, $this->selectedColumns($request));
         }
 
         return Inertia::render('Reports/Purchasing/Index', [
@@ -43,14 +46,10 @@ class PurchasingReportController extends Controller
             'warehouses' => $this->warehousesList(),
             'rows' => $rows,
             'dims' => self::VALID_DIMS,
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
-    /**
-     * AP Aging — bucket: 0-30 / 31-60 / 61-90 / >90 hari dari due_date.
-     * Hanya AP berstatus open/partially_paid (sisa hutang > 0).
-     * Bucket dihitung berdasarkan `as_of` (default hari ini).
-     */
     public function apAging(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.purchasing.view');
@@ -73,9 +72,6 @@ class PurchasingReportController extends Controller
             ])
             ->map(function ($r) use ($asOf) {
                 $due = $r->due_date ? CarbonImmutable::parse($r->due_date) : null;
-                // Bucket berdasarkan SELISIH HARI dari due_date ke as_of.
-                // due_date di masa depan = "belum jatuh tempo" (0-30).
-                // overdue dikategori berdasar lewat berapa hari.
                 $daysOverdue = $due ? $due->diffInDays($asOf, false) : null;
 
                 $bucket = '0-30';
@@ -110,7 +106,6 @@ class PurchasingReportController extends Controller
             })
             ->all();
 
-        // Aggregate bucket
         $buckets = [
             '0-30' => 0.0,
             '31-60' => 0.0,
@@ -121,8 +116,10 @@ class PurchasingReportController extends Controller
             $buckets[$r->bucket] += $r->remaining;
         }
 
+        $cols = $this->columnsApAging();
+
         if ($request->boolean('export')) {
-            return $this->exportApAging($rows, $buckets, $asOf);
+            return $this->exportApAging($rows, $buckets, $asOf, $cols, $this->selectedColumns($request));
         }
 
         return Inertia::render('Reports/Purchasing/ApAging', [
@@ -130,7 +127,121 @@ class PurchasingReportController extends Controller
             'rows' => $rows,
             'buckets' => $buckets,
             'total_outstanding' => array_sum($buckets),
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
+    }
+
+    /**
+     * Daftar SEMUA AP (termasuk paid/void), filter periode received_at + status.
+     * Berbeda dengan apAging yang hanya outstanding.
+     */
+    public function apList(Request $request): Response|BinaryFileResponse
+    {
+        $this->authorize('reports.purchasing.view');
+        $f = $this->parsePeriod($request);
+        $statusFilter = $request->string('status')->toString() ?: null;
+
+        $q = DB::table('accounts_payable as ap')
+            ->join('suppliers as s', 's.id', '=', 'ap.supplier_id')
+            ->leftJoin('goods_receipts as gr', 'gr.id', '=', 'ap.gr_id')
+            ->leftJoin('purchase_orders as po', 'po.id', '=', 'ap.po_id')
+            ->whereBetween('gr.received_at', [$f['from']->toDateString(), $f['to']->toDateString()])
+            ->orderBy('gr.received_at', 'desc')
+            ->orderBy('ap.id', 'desc');
+
+        if ($statusFilter) {
+            $q->where('ap.status', $statusFilter);
+        }
+
+        $rows = $q->get([
+            'ap.id', 'ap.ap_no', 'ap.due_date', 'ap.amount', 'ap.paid_amount', 'ap.status',
+            's.code as supplier_code', 's.name as supplier_name',
+            'gr.gr_no', 'gr.received_at',
+            'po.po_no',
+        ])->map(function ($r) {
+            $r->amount = (float) $r->amount;
+            $r->paid_amount = (float) $r->paid_amount;
+            $r->remaining = round($r->amount - $r->paid_amount, 2);
+
+            return $r;
+        })->all();
+
+        $cols = $this->columnsApList();
+
+        if ($request->boolean('export')) {
+            [$labels, $extractors] = ColumnPicker::pick($cols, $this->selectedColumns($request));
+            $data = ColumnPicker::rowsToArray($rows, $extractors);
+
+            return (new ReportExcelExporter)
+                ->addSheet('Daftar AP', $labels, $data)
+                ->addSheet('Info', ['Item', 'Nilai'], [
+                    ['Periode terima', $f['from']->toDateString().' s/d '.$f['to']->toDateString()],
+                    ['Filter status', $statusFilter ?? 'SEMUA'],
+                    ['Total record', count($rows)],
+                ])
+                ->download('daftar-ap_'.$f['from']->format('Ymd').'_'.$f['to']->format('Ymd').'.xlsx');
+        }
+
+        return Inertia::render('Reports/Purchasing/ApList', [
+            'filters' => [
+                'from' => $f['from']->toDateString(),
+                'to' => $f['to']->toDateString(),
+                'status' => $statusFilter,
+            ],
+            'rows' => $rows,
+            'available_columns' => ColumnPicker::publicMeta($cols),
+            'status_options' => ['open', 'partially_paid', 'paid', 'void'],
+        ]);
+    }
+
+    // ───────────────────────── column defs ─────────────────────────
+
+    private function columnsPurchase(string $dim): array
+    {
+        $dimLabel = $dim === 'produk' ? 'Produk' : 'Supplier';
+
+        return [
+            'code' => ['label' => "Kode {$dimLabel}", 'default' => true, 'value' => fn ($r) => $r['code']],
+            'label' => ['label' => $dimLabel, 'default' => true, 'value' => fn ($r) => $r['label']],
+            'trx_count' => ['label' => 'Jumlah Penerimaan', 'default' => true, 'value' => fn ($r) => $r['trx_count']],
+            'qty' => ['label' => 'Total Qty', 'default' => true, 'value' => fn ($r) => (float) $r['qty']],
+            'nilai' => ['label' => 'Nilai Pembelian', 'default' => true, 'value' => fn ($r) => (float) $r['nilai']],
+        ];
+    }
+
+    private function columnsApAging(): array
+    {
+        return [
+            'ap_no' => ['label' => 'No AP', 'default' => true, 'value' => fn ($r) => $r->ap_no],
+            'supplier_code' => ['label' => 'Kode Supplier', 'default' => false, 'value' => fn ($r) => $r->supplier_code],
+            'supplier_name' => ['label' => 'Supplier', 'default' => true, 'value' => fn ($r) => $r->supplier_name],
+            'gr_no' => ['label' => 'No GR', 'default' => false, 'value' => fn ($r) => $r->gr_no ?? ''],
+            'received_at' => ['label' => 'Tgl Terima', 'default' => false, 'value' => fn ($r) => $r->received_at ?? ''],
+            'due_date' => ['label' => 'Jatuh Tempo', 'default' => true, 'value' => fn ($r) => $r->due_date ?? ''],
+            'amount' => ['label' => 'Nilai', 'default' => true, 'value' => fn ($r) => $r->amount],
+            'paid_amount' => ['label' => 'Sudah Bayar', 'default' => false, 'value' => fn ($r) => $r->paid_amount],
+            'remaining' => ['label' => 'Sisa', 'default' => true, 'value' => fn ($r) => $r->remaining],
+            'days_overdue' => ['label' => 'Hari Overdue (+ = overdue)', 'default' => true, 'value' => fn ($r) => $r->days_overdue],
+            'bucket' => ['label' => 'Bucket', 'default' => true, 'value' => fn ($r) => $r->bucket],
+            'status' => ['label' => 'Status', 'default' => false, 'value' => fn ($r) => $r->status],
+        ];
+    }
+
+    private function columnsApList(): array
+    {
+        return [
+            'ap_no' => ['label' => 'No AP', 'default' => true, 'value' => fn ($r) => $r->ap_no],
+            'received_at' => ['label' => 'Tgl Terima', 'default' => true, 'value' => fn ($r) => $r->received_at ?? ''],
+            'supplier_code' => ['label' => 'Kode Supplier', 'default' => false, 'value' => fn ($r) => $r->supplier_code],
+            'supplier_name' => ['label' => 'Supplier', 'default' => true, 'value' => fn ($r) => $r->supplier_name],
+            'po_no' => ['label' => 'No PO', 'default' => false, 'value' => fn ($r) => $r->po_no ?? ''],
+            'gr_no' => ['label' => 'No GR', 'default' => true, 'value' => fn ($r) => $r->gr_no ?? ''],
+            'amount' => ['label' => 'Nilai', 'default' => true, 'value' => fn ($r) => $r->amount],
+            'paid_amount' => ['label' => 'Sudah Bayar', 'default' => true, 'value' => fn ($r) => $r->paid_amount],
+            'remaining' => ['label' => 'Sisa', 'default' => true, 'value' => fn ($r) => $r->remaining],
+            'due_date' => ['label' => 'Jatuh Tempo', 'default' => true, 'value' => fn ($r) => $r->due_date ?? ''],
+            'status' => ['label' => 'Status', 'default' => true, 'value' => fn ($r) => $r->status],
+        ];
     }
 
     // ───────────────────────── aggregation ─────────────────────────
@@ -155,7 +266,7 @@ class PurchasingReportController extends Controller
                     .'COUNT(DISTINCT gr.id) as trx_count, '
                     .'SUM(gri.qty_received) as qty, '
                     .'SUM(gri.subtotal) as nilai');
-        } else { // supplier
+        } else {
             $q->join('purchase_orders as po', 'po.id', '=', 'gr.po_id')
                 ->join('suppliers as s', 's.id', '=', 'po.supplier_id')
                 ->groupBy('s.id', 's.code', 's.name')
@@ -177,7 +288,59 @@ class PurchasingReportController extends Controller
             ->all();
     }
 
-    // ───────────────────────── filter parsing ─────────────────────────
+    // ───────────────────────── exporters ─────────────────────────
+
+    private function exportPurchases(string $dim, array $rows, array $cols, array $f, ?array $selected): BinaryFileResponse
+    {
+        [$labels, $extractors] = ColumnPicker::pick($cols, $selected);
+        $data = ColumnPicker::rowsToArray($rows, $extractors);
+
+        $fromS = CarbonImmutable::parse($f['from'])->format('Ymd');
+        $toS = CarbonImmutable::parse($f['to'])->format('Ymd');
+
+        return (new ReportExcelExporter)
+            ->addSheet('Pembelian per '.ucfirst($dim), $labels, $data)
+            ->addSheet('Info', ['Item', 'Nilai'], [
+                ['Dimensi', $dim],
+                ['Periode', CarbonImmutable::parse($f['from'])->toDateString().' s/d '.CarbonImmutable::parse($f['to'])->toDateString()],
+                ['Cabang', $f['warehouse_id'] ? (string) $f['warehouse_id'] : 'KONSOLIDASI'],
+                ['Sumber', 'goods_receipt_items (event penerimaan)'],
+            ])
+            ->download('pembelian-per-'.$dim.'_'.$fromS.'_'.$toS.'.xlsx');
+    }
+
+    private function exportApAging(array $rows, array $buckets, CarbonImmutable $asOf, array $cols, ?array $selected): BinaryFileResponse
+    {
+        [$labels, $extractors] = ColumnPicker::pick($cols, $selected);
+        $detail = ColumnPicker::rowsToArray($rows, $extractors);
+
+        return (new ReportExcelExporter)
+            ->addSheet('Detail AP', $labels, $detail)
+            ->addSheet('Ringkasan Bucket', ['Bucket', 'Total Sisa'], [
+                ['0-30 (belum jatuh tempo / overdue ≤30 hari)', $buckets['0-30']],
+                ['31-60', $buckets['31-60']],
+                ['61-90', $buckets['61-90']],
+                ['>90', $buckets['>90']],
+                ['TOTAL', array_sum($buckets)],
+                ['Per Tanggal', $asOf->toDateString()],
+            ])
+            ->download('ap-aging_'.$asOf->format('Ymd').'.xlsx');
+    }
+
+    // ───────────────────────── helpers ─────────────────────────
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function selectedColumns(Request $request): ?array
+    {
+        $cols = $request->input('columns');
+        if (! is_array($cols)) {
+            return null;
+        }
+
+        return array_values(array_filter($cols, fn ($v) => is_string($v) && $v !== ''));
+    }
 
     /**
      * @return array{from:string,to:string,warehouse_id:?int}
@@ -197,7 +360,6 @@ class PurchasingReportController extends Controller
 
         $user = Auth::user();
         $requestedWh = $request->integer('warehouse_id') ?: null;
-        // user fixed-to-WH = forced. Owner/manager = optional filter.
         $whId = $user->warehouse_id ?? $requestedWh;
 
         return [
@@ -205,6 +367,28 @@ class PurchasingReportController extends Controller
             'to' => $to->toDateTimeString(),
             'warehouse_id' => $whId,
         ];
+    }
+
+    /**
+     * Simpler period parser untuk apList (no warehouse scope di AP — AP itu
+     * supplier-level, bukan warehouse-level).
+     *
+     * @return array{from:CarbonImmutable,to:CarbonImmutable}
+     */
+    private function parsePeriod(Request $request): array
+    {
+        $now = CarbonImmutable::now();
+        $from = $request->date('from')
+            ? CarbonImmutable::parse($request->date('from'))->startOfDay()
+            : $now->startOfMonth();
+        $to = $request->date('to')
+            ? CarbonImmutable::parse($request->date('to'))->endOfDay()
+            : $now->endOfDay();
+        if ($to->lt($from)) {
+            $to = $from->endOfDay();
+        }
+
+        return ['from' => $from, 'to' => $to];
     }
 
     private function filtersOut(array $f): array
@@ -224,53 +408,5 @@ class PurchasingReportController extends Controller
         }
 
         return Warehouse::active()->orderBy('name')->get(['id', 'code', 'name']);
-    }
-
-    // ───────────────────────── exporters ─────────────────────────
-
-    private function exportPurchases(string $dim, array $rows, array $f): BinaryFileResponse
-    {
-        $headers = [ucfirst($dim).' (Kode)', ucfirst($dim).' (Nama)', 'Jumlah Penerimaan', 'Total Qty', 'Nilai Pembelian'];
-        $data = array_map(fn ($r) => [
-            $r['code'], $r['label'], $r['trx_count'], $r['qty'], $r['nilai'],
-        ], $rows);
-
-        return (new ReportExcelExporter)
-            ->addSheet('Pembelian per '.ucfirst($dim), $headers, $data)
-            ->addSheet('Info', ['Item', 'Nilai'], [
-                ['Dimensi', $dim],
-                ['Periode', CarbonImmutable::parse($f['from'])->toDateString().' s/d '.CarbonImmutable::parse($f['to'])->toDateString()],
-                ['Cabang', $f['warehouse_id'] ? (string) $f['warehouse_id'] : 'KONSOLIDASI'],
-                ['Sumber', 'goods_receipt_items (event penerimaan)'],
-            ])
-            ->download('pembelian-per-'.$dim.'_'.CarbonImmutable::parse($f['from'])->format('Ymd').'_'.CarbonImmutable::parse($f['to'])->format('Ymd').'.xlsx');
-    }
-
-    private function exportApAging(array $rows, array $buckets, CarbonImmutable $asOf): BinaryFileResponse
-    {
-        // Sheet 1: detail per AP (flat)
-        $detail = array_map(fn ($r) => [
-            $r->ap_no, $r->supplier_code, $r->supplier_name, $r->gr_no ?? '',
-            $r->received_at ?? '', $r->due_date ?? '',
-            $r->amount, $r->paid_amount, $r->remaining,
-            $r->days_overdue, $r->bucket, $r->status,
-        ], $rows);
-
-        return (new ReportExcelExporter)
-            ->addSheet('Detail AP', [
-                'No AP', 'Kode Supplier', 'Nama Supplier', 'No GR',
-                'Tgl Terima', 'Jatuh Tempo',
-                'Nilai', 'Sudah Bayar', 'Sisa',
-                'Hari Overdue (+ = overdue)', 'Bucket', 'Status',
-            ], $detail)
-            ->addSheet('Ringkasan Bucket', ['Bucket', 'Total Sisa'], [
-                ['0-30 (belum jatuh tempo / overdue ≤30 hari)', $buckets['0-30']],
-                ['31-60', $buckets['31-60']],
-                ['61-90', $buckets['61-90']],
-                ['>90', $buckets['>90']],
-                ['TOTAL', array_sum($buckets)],
-                ['Per Tanggal', $asOf->toDateString()],
-            ])
-            ->download('ap-aging_'.$asOf->format('Ymd').'.xlsx');
     }
 }

@@ -15,6 +15,8 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, formatQty, rupiah } from '@/lib/utils';
 import { type FormEvent } from 'react';
+import ExportButton from '../_components/ExportButton';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface MovementRow {
     id: number;
@@ -61,9 +63,16 @@ interface Props {
     warehouses: Warehouse[];
     movements: Paginated<MovementRow>;
     movement_types: string[];
+    available_columns: ColumnOption[];
 }
 
-export default function Movements({ filters, warehouses, movements, movement_types }: Props) {
+export default function Movements({
+    filters,
+    warehouses,
+    movements,
+    movement_types,
+    available_columns,
+}: Props) {
     function submit(e: FormEvent) {
         e.preventDefault();
         const fd = new FormData(e.target as HTMLFormElement);
@@ -74,16 +83,6 @@ export default function Movements({ filters, warehouses, movements, movement_typ
         router.get(route('reports.inventory_movements'), params, { preserveScroll: true });
     }
 
-    const exportHref = (() => {
-        const p = new URLSearchParams();
-        if (filters.from) p.set('from', filters.from);
-        if (filters.to) p.set('to', filters.to);
-        if (filters.warehouse_id) p.set('warehouse_id', String(filters.warehouse_id));
-        if (filters.type) p.set('type', filters.type);
-        if (filters.product_id) p.set('product_id', String(filters.product_id));
-        p.set('export', '1');
-        return `${route('reports.inventory_movements')}?${p.toString()}`;
-    })();
 
     return (
         <AuthenticatedLayout
@@ -149,12 +148,17 @@ export default function Movements({ filters, warehouses, movements, movement_typ
                     </div>
                     <div className="ml-auto flex gap-2">
                         <Button type="submit">Tampilkan</Button>
-                        <a
-                            href={exportHref}
-                            className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                        >
-                            Export Excel
-                        </a>
+                        <ExportButton
+                            baseUrl={route('reports.inventory_movements')}
+                            params={{
+                                from: filters.from,
+                                to: filters.to,
+                                warehouse_id: filters.warehouse_id,
+                                type: filters.type,
+                                product_id: filters.product_id,
+                            }}
+                            columns={available_columns}
+                        />
                     </div>
                 </form>
 

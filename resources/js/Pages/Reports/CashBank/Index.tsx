@@ -14,6 +14,8 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, rupiah } from '@/lib/utils';
 import { type FormEvent } from 'react';
+import ExportButton from '../_components/ExportButton';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Coa {
     id: number;
@@ -48,9 +50,17 @@ interface Props {
     balances: Record<number, number>;
     rows: Row[];
     totals: Totals;
+    available_columns: ColumnOption[];
 }
 
-export default function CashBankIndex({ filters, accounts, balances, rows, totals }: Props) {
+export default function CashBankIndex({
+    filters,
+    accounts,
+    balances,
+    rows,
+    totals,
+    available_columns,
+}: Props) {
     function submit(e: FormEvent) {
         e.preventDefault();
         const fd = new FormData(e.target as HTMLFormElement);
@@ -61,14 +71,6 @@ export default function CashBankIndex({ filters, accounts, balances, rows, total
         router.get(route('reports.cash_bank'), params, { preserveScroll: true });
     }
 
-    const exportHref = (() => {
-        const p = new URLSearchParams();
-        if (filters.from) p.set('from', filters.from);
-        if (filters.to) p.set('to', filters.to);
-        if (filters.coa_id) p.set('coa_id', String(filters.coa_id));
-        p.set('export', '1');
-        return `${route('reports.cash_bank')}?${p.toString()}`;
-    })();
 
     const selected = accounts.find((a) => a.id === filters.coa_id);
 
@@ -131,12 +133,15 @@ export default function CashBankIndex({ filters, accounts, balances, rows, total
                     <div className="ml-auto flex gap-2">
                         <Button type="submit">Tampilkan</Button>
                         {filters.coa_id && (
-                            <a
-                                href={exportHref}
-                                className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                            >
-                                Export Excel
-                            </a>
+                            <ExportButton
+                                baseUrl={route('reports.cash_bank')}
+                                params={{
+                                    from: filters.from,
+                                    to: filters.to,
+                                    coa_id: filters.coa_id,
+                                }}
+                                columns={available_columns}
+                            />
                         )}
                     </div>
                 </form>

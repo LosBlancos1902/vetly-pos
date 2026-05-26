@@ -12,6 +12,7 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, rupiah } from '@/lib/utils';
 import PeriodFilter from '../_components/PeriodFilter';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Row {
     id: number;
@@ -30,9 +31,10 @@ interface Row {
 interface Props {
     filters: { from: string; to: string };
     rows: Row[];
+    available_columns: ColumnOption[];
 }
 
-export default function Shifts({ filters, rows }: Props) {
+export default function Shifts({ filters, rows, available_columns }: Props) {
     return (
         <AuthenticatedLayout
             header={<h2 className="text-xl font-semibold">Laporan Shift Kasir</h2>}
@@ -44,6 +46,7 @@ export default function Shifts({ filters, rows }: Props) {
                     from={filters.from}
                     to={filters.to}
                     showWarehouse={false}
+                    availableColumns={available_columns}
                 />
 
                 <Card>

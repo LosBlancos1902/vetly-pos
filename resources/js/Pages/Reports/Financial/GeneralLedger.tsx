@@ -14,6 +14,8 @@ import {
 } from '@/Components/ui/table';
 import { formatDateID, rupiah } from '@/lib/utils';
 import { type FormEvent } from 'react';
+import ExportButton from '../_components/ExportButton';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Coa {
     id: number;
@@ -43,9 +45,18 @@ interface Props {
     opening: number;
     closing: number;
     rows: Row[];
+    available_columns: ColumnOption[];
 }
 
-export default function GeneralLedger({ filters, accounts, account, opening, closing, rows }: Props) {
+export default function GeneralLedger({
+    filters,
+    accounts,
+    account,
+    opening,
+    closing,
+    rows,
+    available_columns,
+}: Props) {
     function submit(e: FormEvent) {
         e.preventDefault();
         const fd = new FormData(e.target as HTMLFormElement);
@@ -55,15 +66,6 @@ export default function GeneralLedger({ filters, accounts, account, opening, clo
         });
         router.get(route('reports.general_ledger'), params, { preserveScroll: true });
     }
-
-    const exportHref = (() => {
-        const p = new URLSearchParams();
-        if (filters.from) p.set('from', filters.from);
-        if (filters.to) p.set('to', filters.to);
-        if (filters.coa_id) p.set('coa_id', String(filters.coa_id));
-        p.set('export', '1');
-        return `${route('reports.general_ledger')}?${p.toString()}`;
-    })();
 
     return (
         <AuthenticatedLayout
@@ -102,12 +104,15 @@ export default function GeneralLedger({ filters, accounts, account, opening, clo
                     <div className="ml-auto flex gap-2">
                         <Button type="submit">Tampilkan</Button>
                         {account && (
-                            <a
-                                href={exportHref}
-                                className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                            >
-                                Export Excel
-                            </a>
+                            <ExportButton
+                                baseUrl={route('reports.general_ledger')}
+                                params={{
+                                    from: filters.from,
+                                    to: filters.to,
+                                    coa_id: filters.coa_id,
+                                }}
+                                columns={available_columns}
+                            />
                         )}
                     </div>
                 </form>

@@ -14,6 +14,8 @@ import {
 } from '@/Components/ui/table';
 import { formatQty, rupiah } from '@/lib/utils';
 import { type FormEvent } from 'react';
+import ExportButton from '../_components/ExportButton';
+import { ColumnOption } from '../_components/ExportColumnPickerModal';
 
 interface Row {
     key_id: number;
@@ -35,9 +37,10 @@ interface Props {
     warehouses: Warehouse[];
     rows: Row[];
     dims: string[];
+    available_columns: ColumnOption[];
 }
 
-export default function PurchasingIndex({ filters, warehouses, rows, dims }: Props) {
+export default function PurchasingIndex({ filters, warehouses, rows, dims, available_columns }: Props) {
     function submit(e: FormEvent) {
         e.preventDefault();
         const fd = new FormData(e.target as HTMLFormElement);
@@ -48,15 +51,6 @@ export default function PurchasingIndex({ filters, warehouses, rows, dims }: Pro
         router.get(route('reports.purchasing'), params, { preserveScroll: true });
     }
 
-    const exportHref = (() => {
-        const p = new URLSearchParams();
-        if (filters.from) p.set('from', filters.from);
-        if (filters.to) p.set('to', filters.to);
-        if (filters.warehouse_id) p.set('warehouse_id', String(filters.warehouse_id));
-        p.set('dim', filters.dim);
-        p.set('export', '1');
-        return `${route('reports.purchasing')}?${p.toString()}`;
-    })();
 
     const totalNilai = rows.reduce((a, r) => a + r.nilai, 0);
 
@@ -113,12 +107,16 @@ export default function PurchasingIndex({ filters, warehouses, rows, dims }: Pro
                     )}
                     <div className="ml-auto flex gap-2">
                         <Button type="submit">Tampilkan</Button>
-                        <a
-                            href={exportHref}
-                            className="inline-flex h-9 items-center rounded border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50"
-                        >
-                            Export Excel
-                        </a>
+                        <ExportButton
+                            baseUrl={route('reports.purchasing')}
+                            params={{
+                                from: filters.from,
+                                to: filters.to,
+                                warehouse_id: filters.warehouse_id,
+                                dim: filters.dim,
+                            }}
+                            columns={available_columns}
+                        />
                     </div>
                 </form>
 

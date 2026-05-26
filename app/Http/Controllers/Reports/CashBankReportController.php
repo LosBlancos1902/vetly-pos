@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Coa;
+use App\Services\Reports\ColumnPicker;
 use App\Services\Reports\ReportExcelExporter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -15,31 +16,20 @@ use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
- * Laporan Kas & Bank READ-ONLY.
- *
- * Mutasi: untuk akun di hirarki "Kas" (parent code 1100) — saat ini
- * meliputi 1101 Kas Besar, 1102 Kas Kecil, 1103 Bank BCA, 1104 Bank Mandiri,
- * 1105 Piutang QRIS. Hanya akun yang punya entry yang ditampilkan.
- *
- * Laporan Shift Kasir: ringkasan opening/expected/closing/variance.
+ * Cash & Bank reports READ-ONLY dengan column picker.
  */
 class CashBankReportController extends Controller
 {
-    /**
-     * Daftar akun kas/bank + saldo per cutoff (sidebar).
-     */
     public function index(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.financial.view');
         $f = $this->parsePeriod($request);
 
-        // Cari akun child dari parent code "1100" (Kas).
         $parent = Coa::where('code', '1100')->first();
         $accounts = $parent
             ? Coa::where('parent_id', $parent->id)->orderBy('code')->get(['id', 'code', 'name', 'normal_balance'])
             : collect();
 
-        // Saldo per akun di akhir periode (untuk dashboard cards)
         $balances = [];
         foreach ($accounts as $a) {
             $r = DB::table('journal_entries as je')
@@ -60,11 +50,11 @@ class CashBankReportController extends Controller
         $closing = 0.0;
         $totalIn = 0.0;
         $totalOut = 0.0;
+        $account = null;
 
         if ($coaId) {
             $account = $accounts->firstWhere('id', $coaId);
             if ($account) {
-                // Opening = saldo sampai (from - 1 hari)
                 $openR = DB::table('journal_entries as je')
                     ->join('journals as j', 'j.id', '=', 'je.journal_id')
                     ->where('je.coa_id', $account->id)
@@ -109,10 +99,10 @@ class CashBankReportController extends Controller
             }
         }
 
-        if ($request->boolean('export') && $coaId) {
-            $account = $accounts->firstWhere('id', $coaId);
+        $cols = $this->columnsCashBank();
 
-            return $this->exportCashBank($account, $rows, $opening, $closing, $totalIn, $totalOut, $f);
+        if ($request->boolean('export') && $account) {
+            return $this->exportCashBank($account, $rows, $opening, $closing, $totalIn, $totalOut, $cols, $f, $this->selectedColumns($request));
         }
 
         return Inertia::render('Reports/CashBank/Index', [
@@ -130,12 +120,10 @@ class CashBankReportController extends Controller
                 'out' => $totalOut,
                 'closing' => $closing,
             ],
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
-    /**
-     * Laporan Shift Kasir — list shift dengan opening/expected/closing/variance.
-     */
     public function shifts(Request $request): Response|BinaryFileResponse
     {
         $this->authorize('reports.financial.view');
@@ -168,17 +156,14 @@ class CashBankReportController extends Controller
             ])
             ->all();
 
+        $cols = $this->columnsShifts();
+
         if ($request->boolean('export')) {
+            [$labels, $extractors] = ColumnPicker::pick($cols, $this->selectedColumns($request));
+            $data = ColumnPicker::rowsToArray($rows, $extractors);
+
             return (new ReportExcelExporter)
-                ->addSheet('Shift Kasir', [
-                    'ID', 'Kasir', 'Cabang', 'Buka', 'Tutup',
-                    'Kas Awal', 'Kas Harapan', 'Kas Tutup', 'Selisih', 'Status',
-                ], array_map(fn ($r) => [
-                    $r->id, $r->cashier_name, ($r->warehouse_code ?? '').' '.($r->warehouse_name ?? ''),
-                    $r->opened_at, $r->closed_at ?? '',
-                    $r->opening_cash, $r->expected_cash ?? '', $r->closing_cash ?? '',
-                    $r->cash_variance ?? '', $r->status,
-                ], $rows))
+                ->addSheet('Shift Kasir', $labels, $data)
                 ->download('shift-kasir_'.$f['from']->format('Ymd').'_'.$f['to']->format('Ymd').'.xlsx');
         }
 
@@ -188,10 +173,58 @@ class CashBankReportController extends Controller
                 'to' => $f['to']->toDateString(),
             ],
             'rows' => $rows,
+            'available_columns' => ColumnPicker::publicMeta($cols),
         ]);
     }
 
+    // ───────────────────────── columns ─────────────────────────
+
+    private function columnsCashBank(): array
+    {
+        return [
+            'date' => ['label' => 'Tanggal', 'default' => true, 'value' => fn ($r) => $r->date],
+            'journal_no' => ['label' => 'No Jurnal', 'default' => true, 'value' => fn ($r) => $r->journal_no],
+            'description' => ['label' => 'Keterangan', 'default' => true, 'value' => fn ($r) => $r->entry_description ?? $r->description],
+            'ref_type' => ['label' => 'Ref Type', 'default' => false, 'value' => fn ($r) => $r->ref_type ?? ''],
+            'ref_id' => ['label' => 'Ref ID', 'default' => false, 'value' => fn ($r) => $r->ref_id ?? ''],
+            'entry_description' => ['label' => 'Detail Entry', 'default' => false, 'value' => fn ($r) => $r->entry_description ?? ''],
+            'masuk' => ['label' => 'Masuk', 'default' => true, 'value' => fn ($r) => (float) $r->masuk],
+            'keluar' => ['label' => 'Keluar', 'default' => true, 'value' => fn ($r) => (float) $r->keluar],
+            'saldo' => ['label' => 'Saldo', 'default' => true, 'value' => fn ($r) => (float) $r->saldo],
+        ];
+    }
+
+    private function columnsShifts(): array
+    {
+        return [
+            'id' => ['label' => 'ID', 'default' => false, 'value' => fn ($r) => $r->id],
+            'cashier_name' => ['label' => 'Kasir', 'default' => true, 'value' => fn ($r) => $r->cashier_name],
+            'warehouse_code' => ['label' => 'Kode Cabang', 'default' => false, 'value' => fn ($r) => $r->warehouse_code ?? ''],
+            'warehouse_name' => ['label' => 'Cabang', 'default' => true, 'value' => fn ($r) => $r->warehouse_name ?? ''],
+            'opened_at' => ['label' => 'Buka', 'default' => true, 'value' => fn ($r) => $r->opened_at],
+            'closed_at' => ['label' => 'Tutup', 'default' => true, 'value' => fn ($r) => $r->closed_at ?? ''],
+            'opening_cash' => ['label' => 'Kas Awal', 'default' => true, 'value' => fn ($r) => $r->opening_cash],
+            'expected_cash' => ['label' => 'Kas Harapan', 'default' => true, 'value' => fn ($r) => $r->expected_cash ?? ''],
+            'closing_cash' => ['label' => 'Kas Tutup', 'default' => true, 'value' => fn ($r) => $r->closing_cash ?? ''],
+            'cash_variance' => ['label' => 'Selisih', 'default' => true, 'value' => fn ($r) => $r->cash_variance ?? ''],
+            'status' => ['label' => 'Status', 'default' => true, 'value' => fn ($r) => $r->status],
+        ];
+    }
+
     // ───────────────────────── helpers ─────────────────────────
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function selectedColumns(Request $request): ?array
+    {
+        $cols = $request->input('columns');
+        if (! is_array($cols)) {
+            return null;
+        }
+
+        return array_values(array_filter($cols, fn ($v) => is_string($v) && $v !== ''));
+    }
 
     /**
      * @return array{from:CarbonImmutable,to:CarbonImmutable}
@@ -213,41 +246,21 @@ class CashBankReportController extends Controller
     }
 
     private function exportCashBank(
-        ?Coa $account,
+        Coa $account,
         array $rows,
         float $opening,
         float $closing,
         float $totalIn,
         float $totalOut,
+        array $cols,
         array $f,
+        ?array $selected,
     ): BinaryFileResponse {
-        if (! $account) {
-            return (new ReportExcelExporter)
-                ->addSheet('Kosong', ['Info'], [['Akun tidak ditemukan']])
-                ->download('kas-bank.xlsx');
-        }
-
-        $data = [['', '', '(SALDO AWAL)', '', '', 0, 0, round($opening, 2)]];
-        foreach ($rows as $r) {
-            $data[] = [
-                $r->date,
-                $r->journal_no,
-                $r->description,
-                $r->ref_type ?? '',
-                $r->entry_description ?? '',
-                round((float) $r->masuk, 2),
-                round((float) $r->keluar, 2),
-                round((float) $r->saldo, 2),
-            ];
-        }
-        $data[] = ['', '', '(SALDO AKHIR)', '', '',
-            round($totalIn, 2), round($totalOut, 2), round($closing, 2)];
+        [$labels, $extractors] = ColumnPicker::pick($cols, $selected);
+        $data = ColumnPicker::rowsToArray($rows, $extractors);
 
         return (new ReportExcelExporter)
-            ->addSheet('Mutasi Kas/Bank', [
-                'Tanggal', 'No Jurnal', 'Keterangan', 'Ref', 'Detail Entry',
-                'Masuk', 'Keluar', 'Saldo',
-            ], $data)
+            ->addSheet('Mutasi Kas/Bank', $labels, $data)
             ->addSheet('Info', ['Item', 'Nilai'], [
                 ['Akun', $account->code.' — '.$account->name],
                 ['Periode', $f['from']->toDateString().' s/d '.$f['to']->toDateString()],
