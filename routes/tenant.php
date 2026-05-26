@@ -125,6 +125,16 @@ Route::middleware([
             [\App\Http\Controllers\Master\PromoController::class, 'duplicate'])
             ->name('master.promos.duplicate')
             ->middleware('can:promo.manage');
+        // Excel upload daftar produk untuk Tipe Per-Barang (bulk pilih).
+        // Sebelum resource route supaya tidak ke-shadow oleh /master/promos/{promo}.
+        Route::get('/master/promos/excel-template',
+            [\App\Http\Controllers\Master\PromoImportController::class, 'downloadTemplate'])
+            ->name('master.promos.excel_template')
+            ->middleware('can:promo.manage');
+        Route::post('/master/promos/excel-preview',
+            [\App\Http\Controllers\Master\PromoImportController::class, 'preview'])
+            ->name('master.promos.excel_preview')
+            ->middleware('can:promo.manage');
         Route::resource('master/promos', \App\Http\Controllers\Master\PromoController::class)
             ->parameters(['promos' => 'promo'])
             ->names('master.promos')

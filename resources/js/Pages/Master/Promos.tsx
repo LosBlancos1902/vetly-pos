@@ -58,6 +58,30 @@ interface Coa { id: number; code: string; name: string; type: string }
 interface Warehouse { id: number; code: string; name: string }
 interface ProductLite { id: number; sku: string; name: string; category_id: number | null }
 interface CategoryLite { id: number; name: string }
+
+interface ExcelPreviewMatched {
+    id: number;
+    sku: string;
+    name: string;
+    row_excel: number;
+}
+interface ExcelPreviewUnmatched {
+    row_excel: number;
+    sku: string;
+    name_ref: string | null;
+}
+interface ExcelPreview {
+    matched: ExcelPreviewMatched[];
+    unmatched: ExcelPreviewUnmatched[];
+    summary: {
+        total_input: number;
+        matched_count: number;
+        unmatched_count: number;
+        dedup_skipped: number;
+        empty_skipped: number;
+        truncated: boolean;
+    };
+}
 interface Paginated<T> {
     data: T[];
     links: Array<{ url: string | null; label: string; active: boolean }>;
@@ -160,15 +184,19 @@ export default function Promos({ promos, coas, warehouses, products, categories,
     const [search, setSearch] = useState(filters.search ?? '');
     const [status, setStatus] = useState<'' | 'active' | 'inactive' | 'upcoming'>(filters.status ?? '');
     const [submitting, setSubmitting] = useState(false);
+    const [excelUploading, setExcelUploading] = useState(false);
+    const [excelPreview, setExcelPreview] = useState<ExcelPreview | null>(null);
     const isEdit = form.id !== undefined;
 
     function startCreate() {
         setForm(emptyForm());
+        setExcelPreview(null);
         setTab('umum');
         setOpen(true);
     }
 
     function startEdit(p: Promo) {
+        setExcelPreview(null);
         setForm({
             id: p.id,
             name: p.name,
@@ -225,6 +253,69 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                 ? f.category_ids.filter((x) => x !== id)
                 : [...f.category_ids, id],
         }));
+    }
+
+    async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        if (! file) return;
+
+        const fd = new FormData();
+        fd.append('file', file);
+
+        setExcelUploading(true);
+        setExcelPreview(null);
+        try {
+            const csrf = document
+                .querySelector('meta[name="csrf-token"]')
+                ?.getAttribute('content') ?? '';
+            const resp = await fetch(route('master.promos.excel_preview'), {
+                method: 'POST',
+                body: fd,
+                headers: {
+                    'X-CSRF-TOKEN': csrf,
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            });
+            if (! resp.ok) {
+                const errBody = await resp.json().catch(() => ({}));
+                throw new Error(
+                    errBody.message ?? `Upload gagal (${resp.status})`,
+                );
+            }
+            const data = (await resp.json()) as ExcelPreview;
+            setExcelPreview(data);
+            if (data.summary.matched_count === 0 && data.summary.unmatched_count === 0) {
+                toast.warning('File tidak berisi SKU yang bisa diproses.');
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Upload gagal';
+            toast.error(msg);
+        } finally {
+            setExcelUploading(false);
+            e.target.value = ''; // reset supaya bisa upload file sama berkali-kali
+        }
+    }
+
+    function applyExcelPreview() {
+        if (! excelPreview) return;
+        const newIds = excelPreview.matched.map((m) => m.id);
+        const beforeCount = form.product_ids.length;
+        setForm((f) => ({
+            ...f,
+            product_ids: Array.from(new Set([...f.product_ids, ...newIds])),
+        }));
+        // Set timeout supaya state update keprocess, lalu hitung yang benar-benar baru
+        const added = Array.from(
+            new Set([...form.product_ids, ...newIds]),
+        ).length - beforeCount;
+        toast.success(
+            added > 0
+                ? `${added} produk baru ditambahkan ke promo`
+                : 'Tidak ada produk baru — semua sudah ada di daftar.',
+        );
+        setExcelPreview(null);
     }
 
     function toggleDay(d: DayOfWeek) {
@@ -585,6 +676,125 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                                                 ⓘ Cap diskon di-apply <strong>per item match</strong> (bukan total transaksi).
                                             </p>
                                         )}
+
+                                        <div className="border-t pt-3 space-y-2">
+                                            <Label className="text-xs font-semibold">
+                                                Upload daftar produk via Excel (opsional)
+                                            </Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Untuk bulk pilih banyak produk, download template lalu upload kembali setelah diisi.
+                                                Hasil upload <strong>DITAMBAHKAN</strong> ke pilihan saat ini (tidak menggantikan).
+                                            </p>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <a
+                                                    href={route('master.promos.excel_template')}
+                                                    className="inline-flex h-8 items-center rounded border border-input bg-background px-3 text-xs font-medium hover:bg-muted"
+                                                >
+                                                    ⇩ Download Template
+                                                </a>
+                                                <label
+                                                    className={
+                                                        'inline-flex h-8 items-center rounded border border-input bg-background px-3 text-xs font-medium ' +
+                                                        (excelUploading
+                                                            ? 'cursor-wait opacity-50'
+                                                            : 'cursor-pointer hover:bg-muted')
+                                                    }
+                                                >
+                                                    <input
+                                                        type="file"
+                                                        accept=".xlsx,.xls"
+                                                        className="hidden"
+                                                        onChange={handleExcelUpload}
+                                                        disabled={excelUploading}
+                                                    />
+                                                    {excelUploading ? 'Memproses…' : '⇧ Upload Excel'}
+                                                </label>
+                                            </div>
+
+                                            {excelPreview && (
+                                                <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="text-xs">
+                                                            <strong className="text-green-700">
+                                                                {excelPreview.summary.matched_count} match
+                                                            </strong>
+                                                            {' · '}
+                                                            <strong className="text-amber-700">
+                                                                {excelPreview.summary.unmatched_count} tidak ketemu
+                                                            </strong>
+                                                            {excelPreview.summary.dedup_skipped > 0 && (
+                                                                <> · {excelPreview.summary.dedup_skipped} duplikat di-skip</>
+                                                            )}
+                                                            {excelPreview.summary.empty_skipped > 0 && (
+                                                                <> · {excelPreview.summary.empty_skipped} baris kosong</>
+                                                            )}
+                                                            {excelPreview.summary.truncated && (
+                                                                <> · <span className="text-red-600">file dipotong (file terlalu besar)</span></>
+                                                            )}
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            className="text-xs text-muted-foreground hover:underline"
+                                                            onClick={() => setExcelPreview(null)}
+                                                        >
+                                                            × Batal
+                                                        </button>
+                                                    </div>
+
+                                                    {excelPreview.matched.length > 0 && (
+                                                        <details className="text-xs">
+                                                            <summary className="cursor-pointer text-green-700 hover:underline">
+                                                                ✓ {excelPreview.matched.length} produk match (klik untuk lihat)
+                                                            </summary>
+                                                            <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto rounded border bg-white p-2">
+                                                                {excelPreview.matched.map((m) => (
+                                                                    <li key={m.id} className="flex gap-2">
+                                                                        <span className="font-mono text-[10px] text-muted-foreground">
+                                                                            {m.sku}
+                                                                        </span>
+                                                                        <span>{m.name}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </details>
+                                                    )}
+
+                                                    {excelPreview.unmatched.length > 0 && (
+                                                        <details className="text-xs" open>
+                                                            <summary className="cursor-pointer text-amber-700 hover:underline">
+                                                                ⚠ {excelPreview.unmatched.length} SKU tidak ketemu (klik untuk lihat)
+                                                            </summary>
+                                                            <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto rounded border bg-amber-50 p-2">
+                                                                {excelPreview.unmatched.map((u, i) => (
+                                                                    <li key={i} className="flex gap-2">
+                                                                        <span className="text-muted-foreground">
+                                                                            baris {u.row_excel}:
+                                                                        </span>
+                                                                        <span className="font-mono text-[10px]">{u.sku}</span>
+                                                                        {u.name_ref && (
+                                                                            <span className="italic text-muted-foreground">
+                                                                                ({u.name_ref})
+                                                                            </span>
+                                                                        )}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </details>
+                                                    )}
+
+                                                    <div className="flex justify-end gap-2">
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            onClick={applyExcelPreview}
+                                                            disabled={excelPreview.matched.length === 0}
+                                                        >
+                                                            + Tambahkan {excelPreview.matched.length} produk ke promo
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
 
