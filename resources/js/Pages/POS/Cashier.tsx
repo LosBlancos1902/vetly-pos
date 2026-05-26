@@ -461,6 +461,17 @@ export default function Cashier({ warehouses, tiers }: Props) {
                             + (Number(data.sale.change_amount) > 0
                                 ? ` · kembalian ${rupiah(Number(data.sale.change_amount))}`
                                 : ''),
+                            {
+                                action: {
+                                    label: 'Lihat Struk',
+                                    onClick: () =>
+                                        window.open(
+                                            route('sales.receipt', data.sale.id),
+                                            '_blank',
+                                        ),
+                                },
+                                duration: 8000,
+                            },
                         );
                         // Warning kalau ada promo gugur di race (kuota habis dst).
                         if (Array.isArray(data.skipped_promos) && data.skipped_promos.length > 0) {

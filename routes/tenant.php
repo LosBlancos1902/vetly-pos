@@ -266,6 +266,10 @@ Route::middleware([
 
         // Sales history
         Route::get('/sales', [SaleController::class, 'index'])->name('sales.index');
+        // Struk Penjualan (thermal-ready view, READ-ONLY) — sebelum /sales/{sale}
+        // supaya tidak ke-shadow oleh resource binding.
+        Route::get('/sales/{sale}/receipt', [SaleController::class, 'receipt'])
+            ->middleware('can:pos.access')->name('sales.receipt');
         Route::get('/sales/{sale}', [SaleController::class, 'show'])->name('sales.show');
 
         // Accounting

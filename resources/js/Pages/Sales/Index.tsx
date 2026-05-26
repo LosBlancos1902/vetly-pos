@@ -35,6 +35,7 @@ export default function Index({ sales }: { sales: { data: Sale[] } }) {
                                     <TableHead>Customer</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead className="text-right">Total</TableHead>
+                                    <TableHead className="text-right">Aksi</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -53,6 +54,14 @@ export default function Index({ sales }: { sales: { data: Sale[] } }) {
                                         <TableCell>{s.status}</TableCell>
                                         <TableCell className="text-right">
                                             {rupiah(s.total)}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Link
+                                                href={route('sales.receipt', s.id)}
+                                                className="inline-block rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50"
+                                            >
+                                                Struk
+                                            </Link>
                                         </TableCell>
                                     </TableRow>
                                 ))}

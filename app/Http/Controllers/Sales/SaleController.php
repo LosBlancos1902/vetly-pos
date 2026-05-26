@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Sales;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Sale;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class SaleController extends Controller
 {
@@ -22,6 +24,49 @@ class SaleController extends Controller
     {
         return Inertia::render('Sales/Detail', [
             'sale' => $sale->load(['items.product:id,name,sku', 'payments', 'customer', 'warehouse']),
+        ]);
+    }
+
+    /**
+     * Struk Penjualan — view thermal-ready (READ-ONLY).
+     *
+     * Permission:
+     *   - pos.access (basic gate)
+     *   - kalau user fixed-to-WH (cashier/staff) → sale.warehouse_id WAJIB
+     *     sama dgn user.warehouse_id (anti-bypass lihat struk cabang lain).
+     *
+     * Tidak ada hitung ulang — semua nilai diambil apa adanya dari sale.*
+     * (subtotal, discount_amount, promo_discount_amount, total, amount_paid,
+     * change_amount). Jurnal/HPP/StockMovement TIDAK disentuh.
+     */
+    public function receipt(Request $request, Sale $sale): Response
+    {
+        $this->authorize('pos.access');
+
+        $user = $request->user();
+        if ($user->warehouse_id !== null && (int) $sale->warehouse_id !== (int) $user->warehouse_id) {
+            throw new AccessDeniedHttpException(
+                'Tidak boleh akses struk dari cabang lain.',
+            );
+        }
+
+        $sale->load([
+            'items.product:id,name,sku',
+            'items.unit:id,code,name',
+            'payments',
+            'customer:id,code,name',
+            'warehouse:id,code,name,address,warehouse_type',
+            'cashier:id,name',
+            'promoApplications.promo:id,name,type',
+        ]);
+
+        $width = $request->get('width') === '58mm' ? '58mm' : '80mm';
+
+        return Inertia::render('Sales/Receipt', [
+            'sale' => $sale,
+            'width' => $width,
+            'tenantName' => tenant() ? (string) tenant('id') : 'VETLY POS',
+            'printedAt' => now()->toIso8601String(),
         ]);
     }
 }

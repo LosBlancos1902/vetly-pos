@@ -45,4 +45,9 @@ class Sale extends Model
     {
         return $this->belongsTo(User::class, 'cashier_id');
     }
+
+    public function promoApplications(): HasMany
+    {
+        return $this->hasMany(PromoApplication::class);
+    }
 }
