@@ -242,6 +242,22 @@ export default function StockCard({
                                 <Button type="button" variant="ghost" onClick={reset} className="min-h-11">
                                     Reset
                                 </Button>
+                                {warehouseId && (
+                                    <a
+                                        href={
+                                            route('inventory.stock_card.export', product.id) +
+                                            '?' +
+                                            new URLSearchParams({
+                                                warehouse_id: warehouseId,
+                                                ...(from ? { from } : {}),
+                                                ...(to ? { to } : {}),
+                                            }).toString()
+                                        }
+                                        className="inline-flex min-h-11 items-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent"
+                                    >
+                                        Export Excel
+                                    </a>
+                                )}
                             </div>
                         </form>
                     </CardContent>

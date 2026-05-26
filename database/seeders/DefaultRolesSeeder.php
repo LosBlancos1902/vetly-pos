@@ -45,8 +45,11 @@ class DefaultRolesSeeder extends Seeder
         'customer.manage',  // CRUD customer + quick-create dari POS
                             // (cashier dapet by default, owner override)
         'promo.manage',     // CRUD promo (owner/manager only by default)
-        // Reports
-        'reports.view',
+        // Reports — split per kategori (Batch A laporan)
+        'reports.financial.view',   // P&L, Neraca, Buku Besar, TB, Jurnal, Kas/Bank — owner/manager
+        'reports.sales.view',       // Penjualan multi-dim, margin — manager+supervisor
+        'reports.purchasing.view',  // Pembelian per supplier/produk, AP aging — manager+supervisor
+        'reports.inventory.view',   // Nilai stok, min stok, mutasi, shift kasir — manager+supervisor
         // Tenant settings
         'settings.tenant',
         'settings.users',
@@ -75,7 +78,9 @@ class DefaultRolesSeeder extends Seeder
             'master.manage', 'master.compounds', 'master.services', 'customer.manage',
             'promo.manage',
             'pharmacy.compound',
-            'reports.view', 'settings.users', 'settings.roles',
+            'reports.financial.view', 'reports.sales.view',
+            'reports.purchasing.view', 'reports.inventory.view',
+            'settings.users', 'settings.roles',
             'warehouse.view_all',
             // NOTE: no 'settings.tenant'
         ],
@@ -90,7 +95,8 @@ class DefaultRolesSeeder extends Seeder
         ],
         'supervisor' => [
             'pos.access', 'pos.sell', 'pos.sale.void', 'pos.discount.manual', 'pos.shift.manage',
-            'inventory.view', 'inventory.adjustment', 'reports.view',
+            'inventory.view', 'inventory.adjustment',
+            'reports.sales.view', 'reports.purchasing.view', 'reports.inventory.view',
             'purchasing.pr_create', 'customer.manage',
         ],
         'cashier' => [

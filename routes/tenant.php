@@ -16,6 +16,11 @@ use App\Http\Controllers\Purchasing\AccountsPayableController;
 use App\Http\Controllers\Purchasing\GoodsReceiptController;
 use App\Http\Controllers\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Purchasing\PurchaseRequestController;
+use App\Http\Controllers\Reports\CashBankReportController;
+use App\Http\Controllers\Reports\FinancialReportController;
+use App\Http\Controllers\Reports\InventoryReportController;
+use App\Http\Controllers\Reports\PurchasingReportController;
+use App\Http\Controllers\Reports\SalesReportController;
 use App\Http\Controllers\Pharmacy\CompoundController as PharmacyCompoundController;
 use App\Http\Controllers\POS\CashierController;
 use App\Http\Controllers\POS\ShiftController;
@@ -210,6 +215,8 @@ Route::middleware([
         Route::get('/inventory/stock', [StockController::class, 'index'])->name('inventory.stock');
         Route::get('/inventory/stock-card/{product}', [StockCardController::class, 'show'])
             ->middleware('can:inventory.view')->name('inventory.stock_card');
+        Route::get('/inventory/stock-card/{product}/export', [StockCardController::class, 'export'])
+            ->middleware('can:inventory.view')->name('inventory.stock_card.export');
 
         // Penyesuaian persediaan (manual adjustment) — wire jurnal +
         // kategorisasi rusak/hilang/expired/koreksi. Pisah dari StockController
@@ -253,6 +260,42 @@ Route::middleware([
 
         // Accounting
         Route::get('/accounting/journal', [JournalController::class, 'index'])->name('accounting.journal');
+
+        // Laporan (Batch A — READ-ONLY).
+        // Permission split per kategori: financial (owner/manager),
+        // sales/purchasing/inventory (manager+supervisor).
+        // Export Excel via ?export=1 query string per endpoint.
+        Route::prefix('reports')->name('reports.')->group(function () {
+            // KEUANGAN — owner/manager only
+            Route::middleware('can:reports.financial.view')->group(function () {
+                Route::get('/profit-loss', [FinancialReportController::class, 'profitLoss'])->name('profit_loss');
+                Route::get('/balance-sheet', [FinancialReportController::class, 'balanceSheet'])->name('balance_sheet');
+                Route::get('/general-ledger', [FinancialReportController::class, 'generalLedger'])->name('general_ledger');
+                Route::get('/trial-balance', [FinancialReportController::class, 'trialBalance'])->name('trial_balance');
+                Route::get('/journal-log', [FinancialReportController::class, 'journalLog'])->name('journal_log');
+                Route::get('/cash-bank', [CashBankReportController::class, 'index'])->name('cash_bank');
+                Route::get('/shifts', [CashBankReportController::class, 'shifts'])->name('shifts');
+            });
+
+            // PENJUALAN — manager + supervisor
+            Route::middleware('can:reports.sales.view')->group(function () {
+                Route::get('/sales', [SalesReportController::class, 'index'])->name('sales');
+                Route::get('/sales/margin', [SalesReportController::class, 'margin'])->name('sales_margin');
+            });
+
+            // PEMBELIAN — manager + supervisor
+            Route::middleware('can:reports.purchasing.view')->group(function () {
+                Route::get('/purchasing', [PurchasingReportController::class, 'index'])->name('purchasing');
+                Route::get('/purchasing/ap-aging', [PurchasingReportController::class, 'apAging'])->name('ap_aging');
+            });
+
+            // PERSEDIAAN — manager + supervisor
+            Route::middleware('can:reports.inventory.view')->group(function () {
+                Route::get('/inventory/valuation', [InventoryReportController::class, 'valuation'])->name('inventory_valuation');
+                Route::get('/inventory/min-stock', [InventoryReportController::class, 'minStock'])->name('inventory_min_stock');
+                Route::get('/inventory/movements', [InventoryReportController::class, 'movements'])->name('inventory_movements');
+            });
+        });
 
         // Settings
         Route::get('/settings/tenant', [TenantSettingsController::class, 'index'])

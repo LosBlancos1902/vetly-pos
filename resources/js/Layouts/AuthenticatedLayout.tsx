@@ -171,6 +171,95 @@ export default function Authenticated({
             ],
         },
         {
+            label: 'Laporan',
+            items: [
+                {
+                    label: 'Laba Rugi (P&L)',
+                    href: route('reports.profit_loss'),
+                    routeMatch: 'reports.profit_loss',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Neraca',
+                    href: route('reports.balance_sheet'),
+                    routeMatch: 'reports.balance_sheet',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Buku Besar',
+                    href: route('reports.general_ledger'),
+                    routeMatch: 'reports.general_ledger',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Trial Balance',
+                    href: route('reports.trial_balance'),
+                    routeMatch: 'reports.trial_balance',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Jurnal Umum',
+                    href: route('reports.journal_log'),
+                    routeMatch: 'reports.journal_log',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Mutasi Kas & Bank',
+                    href: route('reports.cash_bank'),
+                    routeMatch: 'reports.cash_bank',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Shift Kasir',
+                    href: route('reports.shifts'),
+                    routeMatch: 'reports.shifts',
+                    permission: 'reports.financial.view',
+                },
+                {
+                    label: 'Penjualan',
+                    href: route('reports.sales'),
+                    routeMatch: 'reports.sales',
+                    permission: 'reports.sales.view',
+                },
+                {
+                    label: 'Margin Penjualan',
+                    href: route('reports.sales_margin'),
+                    routeMatch: 'reports.sales_margin',
+                    permission: 'reports.sales.view',
+                },
+                {
+                    label: 'Pembelian',
+                    href: route('reports.purchasing'),
+                    routeMatch: 'reports.purchasing',
+                    permission: 'reports.purchasing.view',
+                },
+                {
+                    label: 'AP Aging (Hutang)',
+                    href: route('reports.ap_aging'),
+                    routeMatch: 'reports.ap_aging',
+                    permission: 'reports.purchasing.view',
+                },
+                {
+                    label: 'Nilai Stok',
+                    href: route('reports.inventory_valuation'),
+                    routeMatch: 'reports.inventory_valuation',
+                    permission: 'reports.inventory.view',
+                },
+                {
+                    label: 'Stok Minimum',
+                    href: route('reports.inventory_min_stock'),
+                    routeMatch: 'reports.inventory_min_stock',
+                    permission: 'reports.inventory.view',
+                },
+                {
+                    label: 'Mutasi Stok',
+                    href: route('reports.inventory_movements'),
+                    routeMatch: 'reports.inventory_movements',
+                    permission: 'reports.inventory.view',
+                },
+            ],
+        },
+        {
             label: 'Pengaturan',
             items: [
                 {

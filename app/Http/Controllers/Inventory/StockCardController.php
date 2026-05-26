@@ -6,11 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\Tenant\Inventory;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\Warehouse;
+use App\Services\Reports\ReportExcelExporter;
 use App\Services\StockCard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Kartu stok — chronological movement ledger per (product, warehouse).
@@ -78,5 +80,56 @@ class StockCardController extends Controller
                 'to' => $filters['to'] ?? null,
             ],
         ]);
+    }
+
+    /**
+     * Excel export untuk halaman Kartu Stok. Format flat-tabular.
+     * Filter sama dengan show() (warehouse_id wajib).
+     */
+    public function export(Request $request, Product $product, StockCard $stockCard): BinaryFileResponse
+    {
+        $this->authorize('inventory.view');
+
+        $filters = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $warehouse = Warehouse::query()->withoutGlobalScopes()->findOrFail($filters['warehouse_id']);
+        $from = ! empty($filters['from']) ? Carbon::parse($filters['from'])->startOfDay() : null;
+        $to = ! empty($filters['to']) ? Carbon::parse($filters['to'])->endOfDay() : null;
+
+        $movements = $stockCard->for($product, $warehouse, $from, $to)->load('user:id,name');
+
+        $rows = $movements->map(fn ($m) => [
+            $m->created_at?->toDateTimeString() ?? '',
+            $m->type,
+            (float) $m->qty,
+            $m->unitInput?->code ?? '',
+            (float) $m->cost,
+            (float) $m->balance_qty_after,
+            (float) $m->balance_cost_after,
+            $m->ref_type ?? '',
+            $m->ref_id ?? '',
+            $m->reason ?? '',
+            $m->notes ?? '',
+            $m->user?->name ?? '',
+        ])->all();
+
+        $filename = 'kartu-stok_'.$product->sku.'_'.$warehouse->code.'.xlsx';
+
+        return (new ReportExcelExporter)
+            ->addSheet('Kartu Stok', [
+                'Waktu', 'Tipe', 'Qty (base)', 'Satuan Input', 'Cost',
+                'Saldo Qty', 'Saldo Cost', 'Ref Type', 'Ref ID',
+                'Reason', 'Notes', 'User',
+            ], $rows)
+            ->addSheet('Info', ['Item', 'Nilai'], [
+                ['Produk', $product->sku.' — '.$product->name],
+                ['Gudang', $warehouse->code.' — '.$warehouse->name],
+                ['Periode', ($filters['from'] ?? 'awal').' s/d '.($filters['to'] ?? 'sekarang')],
+            ])
+            ->download($filename);
     }
 }

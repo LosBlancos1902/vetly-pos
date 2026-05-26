@@ -103,7 +103,8 @@
       "Bash(./vendor/bin/pest tests/Tenant/Inventory/)",
       "Bash(grep -nB2 'callOpnameController\\('\\\\''complete'\\\\'', Request::create\\('\\\\'''\\\\'', '\\\\''POST'\\\\''\\), $opname\\);' /home/andri/projects/vetly-pos/tests/Tenant/Inventory/StockOpnameTest.php)",
       "Bash(awk *)",
-      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockOpnameTest.php tests/Tenant/Inventory/StockOpnameUpgradeTest.php)"
+      "Bash(./vendor/bin/pest tests/Tenant/Inventory/StockOpnameTest.php tests/Tenant/Inventory/StockOpnameUpgradeTest.php)",
+      "Bash(xargs -I{} echo \"{}\")"
     ]
   }
 }
