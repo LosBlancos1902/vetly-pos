@@ -49,7 +49,17 @@ interface Promo {
     quota_used: number;
     is_active: boolean;
     is_stackable: boolean;
-    config: { product_ids?: number[]; category_ids?: number[] } | null;
+    config: {
+        product_ids?: number[];
+        category_ids?: number[];
+        bundle_rules?: Array<{ product_id: number; qty: number }>;
+        qualifying_product_ids?: number[];
+        qualifying_category_ids?: number[];
+        qualifying_min_qty_per_set?: number;
+        tebus_product_id?: number;
+        tebus_price?: number;
+        max_tebus_per_transaction?: number | null;
+    } | null;
     voucher_code: string | null;
     warehouses: Array<{ id: number; name: string }>;
 }
@@ -103,11 +113,17 @@ const TYPE_LABEL: Record<PromoType, string> = {
     periode_discount: 'Diskon Periode',
     per_item: 'Diskon Per-Barang',
     voucher: 'Kode Voucher',
-    bundling: 'Bundling (coming soon)',
-    tebus_murah: 'Tebus Murah (coming soon)',
+    bundling: 'Bundling',
+    tebus_murah: 'Tebus Murah',
 };
 
-const ENABLED_TYPES: PromoType[] = ['periode_discount', 'per_item', 'voucher'];
+const ENABLED_TYPES: PromoType[] = [
+    'periode_discount',
+    'per_item',
+    'voucher',
+    'bundling',
+    'tebus_murah',
+];
 
 const DAYS: { value: DayOfWeek; label: string }[] = [
     { value: 'mon', label: 'Sen' }, { value: 'tue', label: 'Sel' },
@@ -115,6 +131,8 @@ const DAYS: { value: DayOfWeek; label: string }[] = [
     { value: 'fri', label: 'Jum' }, { value: 'sat', label: 'Sab' },
     { value: 'sun', label: 'Min' },
 ];
+
+interface BundleRuleRow { product_id: number | ''; qty: string }
 
 interface FormState {
     id?: number;
@@ -142,6 +160,15 @@ interface FormState {
     category_ids: number[];  // tipe per_item
     product_search: string;  // local filter
     voucher_code: string;    // tipe voucher
+    // tipe bundling
+    bundle_rules: BundleRuleRow[];
+    // tipe tebus_murah
+    tebus_product_id: number | '';
+    tebus_price: string;
+    qualifying_product_ids: number[];
+    qualifying_category_ids: number[];
+    qualifying_min_qty_per_set: string;
+    max_tebus_per_transaction: string;
 }
 
 function emptyForm(): FormState {
@@ -174,6 +201,16 @@ function emptyForm(): FormState {
         category_ids: [],
         product_search: '',
         voucher_code: '',
+        bundle_rules: [
+            { product_id: '', qty: '1' },
+            { product_id: '', qty: '1' },
+        ],
+        tebus_product_id: '',
+        tebus_price: '',
+        qualifying_product_ids: [],
+        qualifying_category_ids: [],
+        qualifying_min_qty_per_set: '1',
+        max_tebus_per_transaction: '',
     };
 }
 
@@ -223,6 +260,25 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             category_ids: p.config?.category_ids ?? [],
             product_search: '',
             voucher_code: p.voucher_code ?? '',
+            bundle_rules: (p.config?.bundle_rules ?? []).length > 0
+                ? (p.config!.bundle_rules!).map((r) => ({
+                      product_id: r.product_id,
+                      qty: String(r.qty),
+                  }))
+                : [
+                      { product_id: '', qty: '1' },
+                      { product_id: '', qty: '1' },
+                  ],
+            tebus_product_id: p.config?.tebus_product_id ?? '',
+            tebus_price: p.config?.tebus_price !== undefined
+                ? inputMoney(p.config.tebus_price)
+                : '',
+            qualifying_product_ids: p.config?.qualifying_product_ids ?? [],
+            qualifying_category_ids: p.config?.qualifying_category_ids ?? [],
+            qualifying_min_qty_per_set: String(p.config?.qualifying_min_qty_per_set ?? 1),
+            max_tebus_per_transaction: p.config?.max_tebus_per_transaction != null
+                ? String(p.config.max_tebus_per_transaction)
+                : '',
         });
         setTab('umum');
         setOpen(true);
@@ -252,6 +308,44 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             category_ids: f.category_ids.includes(id)
                 ? f.category_ids.filter((x) => x !== id)
                 : [...f.category_ids, id],
+        }));
+    }
+
+    // ─── BUNDLING helpers ─────────────────────────────────────────────
+    function addBundleRow() {
+        setForm((f) => ({
+            ...f,
+            bundle_rules: [...f.bundle_rules, { product_id: '', qty: '1' }],
+        }));
+    }
+    function removeBundleRow(idx: number) {
+        setForm((f) => ({
+            ...f,
+            bundle_rules: f.bundle_rules.filter((_, i) => i !== idx),
+        }));
+    }
+    function updateBundleRow(idx: number, patch: Partial<BundleRuleRow>) {
+        setForm((f) => ({
+            ...f,
+            bundle_rules: f.bundle_rules.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+        }));
+    }
+
+    // ─── TEBUS helpers ────────────────────────────────────────────────
+    function toggleQualifyingProduct(id: number) {
+        setForm((f) => ({
+            ...f,
+            qualifying_product_ids: f.qualifying_product_ids.includes(id)
+                ? f.qualifying_product_ids.filter((x) => x !== id)
+                : [...f.qualifying_product_ids, id],
+        }));
+    }
+    function toggleQualifyingCategory(id: number) {
+        setForm((f) => ({
+            ...f,
+            qualifying_category_ids: f.qualifying_category_ids.includes(id)
+                ? f.qualifying_category_ids.filter((x) => x !== id)
+                : [...f.qualifying_category_ids, id],
         }));
     }
 
@@ -340,11 +434,14 @@ export default function Promos({ promos, coas, warehouses, products, categories,
         e.preventDefault();
         setSubmitting(true);
 
-        const payload = {
+        const payload: Record<string, any> = {
             name: form.name.trim(),
             type: form.type,
+            // Untuk tebus_murah: server auto-fill discount_kind='nominal'+value=1.
+            // Tetap kirim dari form supaya validator existing tidak komplain
+            // kalau owner kebetulan input value valid.
             discount_kind: form.discount_kind,
-            discount_value: Number(form.discount_value),
+            discount_value: Number(form.discount_value) || 1,
             max_discount_amount: form.max_discount_amount ? Number(form.max_discount_amount) : null,
             starts_at: form.starts_at,
             ends_at: form.ends_at,
@@ -363,6 +460,23 @@ export default function Promos({ promos, coas, warehouses, products, categories,
             category_ids: form.type === 'per_item' ? form.category_ids : [],
             voucher_code: form.type === 'voucher' ? form.voucher_code.toUpperCase().trim() : null,
         };
+
+        if (form.type === 'bundling') {
+            payload.bundle_rules = form.bundle_rules
+                .filter((r) => r.product_id !== '' && Number(r.qty) > 0)
+                .map((r) => ({ product_id: Number(r.product_id), qty: Number(r.qty) }));
+        }
+
+        if (form.type === 'tebus_murah') {
+            payload.tebus_product_id = form.tebus_product_id || null;
+            payload.tebus_price = form.tebus_price !== '' ? Number(form.tebus_price) : null;
+            payload.qualifying_product_ids = form.qualifying_product_ids;
+            payload.qualifying_category_ids = form.qualifying_category_ids;
+            payload.qualifying_min_qty_per_set = Number(form.qualifying_min_qty_per_set) || 1;
+            payload.max_tebus_per_transaction = form.max_tebus_per_transaction
+                ? Number(form.max_tebus_per_transaction)
+                : null;
+        }
 
         const opts = {
             preserveScroll: true,
@@ -794,6 +908,240 @@ export default function Promos({ promos, coas, warehouses, products, categories,
                                                     </div>
                                                 </div>
                                             )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {form.type === 'bundling' && (
+                                    <div className="border-t pt-3 space-y-3">
+                                        <div>
+                                            <Label className="text-sm font-semibold">Komponen Bundle</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Beli kombinasi produk ini sekaligus → dapat diskon paket.
+                                                Min 2 baris. Produk harus unik (1 produk 1 baris).
+                                                Bundle kepicu N kali kalau cart punya kelipatan N dari semua komponen.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            {form.bundle_rules.map((row, idx) => (
+                                                <div key={idx} className="flex gap-2 items-end">
+                                                    <div className="flex-1">
+                                                        <Label className="text-xs">Produk</Label>
+                                                        <select
+                                                            value={row.product_id}
+                                                            onChange={(e) =>
+                                                                updateBundleRow(idx, {
+                                                                    product_id: e.target.value === ''
+                                                                        ? ''
+                                                                        : Number(e.target.value),
+                                                                })
+                                                            }
+                                                            className="block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                                        >
+                                                            <option value="">— pilih produk —</option>
+                                                            {products.map((p) => (
+                                                                <option key={p.id} value={p.id}>
+                                                                    {p.sku} — {p.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="w-24">
+                                                        <Label className="text-xs">Qty</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.0001"
+                                                            min="0.0001"
+                                                            value={row.qty}
+                                                            onChange={(e) =>
+                                                                updateBundleRow(idx, { qty: e.target.value })
+                                                            }
+                                                        />
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => removeBundleRow(idx)}
+                                                        disabled={form.bundle_rules.length <= 2}
+                                                        title={form.bundle_rules.length <= 2
+                                                            ? 'Min 2 komponen'
+                                                            : 'Hapus baris'}
+                                                    >
+                                                        ×
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={addBundleRow}
+                                        >
+                                            + Tambah Komponen
+                                        </Button>
+
+                                        <p className="text-xs text-amber-700">
+                                            ⓘ Cap diskon di-apply <strong>per set</strong> bundle.
+                                            Kalau 2 set kepicu → cap × 2.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {form.type === 'tebus_murah' && (
+                                    <div className="border-t pt-3 space-y-4">
+                                        <div>
+                                            <Label className="text-sm font-semibold">Tebus Murah</Label>
+                                            <p className="text-xs text-muted-foreground">
+                                                Customer beli syarat → boleh tebus produk lain dengan harga
+                                                khusus. Kasir SCAN produk tebus di harga normal — sistem
+                                                otomatis kasih diskon = (harga normal − harga tebus) × qty
+                                                tebus. Diskon hanya berlaku kalau syarat kepenuhi DAN produk
+                                                tebus ada di cart.
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <Label className="text-xs font-semibold">
+                                                Syarat — produk/kategori (opsional)
+                                            </Label>
+                                            <p className="text-[10px] text-muted-foreground mb-1">
+                                                Kosongkan kalau syarat cukup pakai min belanja/qty di tab "Syarat".
+                                            </p>
+
+                                            {categories.length > 0 && (
+                                                <div className="mb-2">
+                                                    <Label className="text-[10px]">Kategori syarat</Label>
+                                                    <div className="flex flex-wrap gap-1 rounded-md border p-2">
+                                                        {categories.map((c) => (
+                                                            <button
+                                                                type="button"
+                                                                key={c.id}
+                                                                onClick={() => toggleQualifyingCategory(c.id)}
+                                                                className={`rounded-md border px-2 py-1 text-xs ${
+                                                                    form.qualifying_category_ids.includes(c.id)
+                                                                        ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                                                                        : 'border-input hover:bg-muted/50'
+                                                                }`}
+                                                            >
+                                                                {c.name}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div>
+                                                <Label className="text-[10px]">Produk syarat spesifik</Label>
+                                                <div className="max-h-32 overflow-y-auto rounded-md border p-2 space-y-0.5">
+                                                    {products.slice(0, 30).map((p) => (
+                                                        <label
+                                                            key={p.id}
+                                                            className="flex items-center gap-2 text-xs hover:bg-muted/30 rounded p-1"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={form.qualifying_product_ids.includes(p.id)}
+                                                                onChange={() => toggleQualifyingProduct(p.id)}
+                                                            />
+                                                            <span className="font-mono text-[10px] text-muted-foreground">
+                                                                {p.sku}
+                                                            </span>
+                                                            <span>{p.name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-2">
+                                                <Label className="text-[10px]">Qty syarat per 1 set tebus</Label>
+                                                <Input
+                                                    type="number"
+                                                    min="1"
+                                                    step="1"
+                                                    value={form.qualifying_min_qty_per_set}
+                                                    onChange={(e) =>
+                                                        setForm({
+                                                            ...form,
+                                                            qualifying_min_qty_per_set: e.target.value,
+                                                        })
+                                                    }
+                                                    className="max-w-[120px]"
+                                                />
+                                                <p className="text-[10px] text-muted-foreground mt-1">
+                                                    Default 1. Mis: 3 → beli 3 unit syarat → boleh tebus 1 unit.
+                                                    Beli 6 → boleh tebus 2.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="border-t pt-3">
+                                            <Label className="text-xs font-semibold">Produk Tebus *</Label>
+                                            <select
+                                                value={form.tebus_product_id}
+                                                onChange={(e) =>
+                                                    setForm({
+                                                        ...form,
+                                                        tebus_product_id: e.target.value === ''
+                                                            ? ''
+                                                            : Number(e.target.value),
+                                                    })
+                                                }
+                                                className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                                required={form.type === 'tebus_murah'}
+                                            >
+                                                <option value="">— pilih produk tebus —</option>
+                                                {products
+                                                    .filter((p) => ! form.qualifying_product_ids.includes(p.id))
+                                                    .map((p) => (
+                                                        <option key={p.id} value={p.id}>
+                                                            {p.sku} — {p.name}
+                                                        </option>
+                                                    ))}
+                                            </select>
+
+                                            <div className="mt-2 grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <Label className="text-[10px]">Harga Tebus (Rp) *</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        step="1"
+                                                        value={form.tebus_price}
+                                                        onChange={(e) =>
+                                                            setForm({ ...form, tebus_price: e.target.value })
+                                                        }
+                                                        placeholder="5000"
+                                                        required={form.type === 'tebus_murah'}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <Label className="text-[10px]">
+                                                        Max Tebus / Transaksi (opsional)
+                                                    </Label>
+                                                    <Input
+                                                        type="number"
+                                                        min="1"
+                                                        step="1"
+                                                        value={form.max_tebus_per_transaction}
+                                                        onChange={(e) =>
+                                                            setForm({
+                                                                ...form,
+                                                                max_tebus_per_transaction: e.target.value,
+                                                            })
+                                                        }
+                                                        placeholder="kosong = unlimited"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <p className="text-[10px] text-amber-700 mt-2">
+                                                ⓘ Diskon dihitung otomatis = qty tebus × (harga normal − harga tebus).
+                                                Field "Nilai" & "Cap" di atas TIDAK dipakai untuk tipe ini.
+                                            </p>
                                         </div>
                                     </div>
                                 )}

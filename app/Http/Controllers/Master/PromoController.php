@@ -207,6 +207,16 @@ class PromoController extends Controller
             ]);
         }
 
+        // Tipe Tebus Murah: diskon dihitung dari selisih (cartPrice − tebus_price),
+        // BUKAN dari discount_kind/value. Auto-fill server supaya lulus validator
+        // existing (discount_value required min 0.01). UI hide field ini.
+        if ($request->input('type') === Promo::TYPE_TEBUS_MURAH) {
+            $request->merge([
+                'discount_kind' => 'nominal',
+                'discount_value' => 1, // dummy, tidak dipakai strategy
+            ]);
+        }
+
         $voucherUnique = $promoId
             ? Rule::unique('promos', 'voucher_code')->ignore($promoId)
             : Rule::unique('promos', 'voucher_code');
@@ -216,8 +226,6 @@ class PromoController extends Controller
             'type' => ['required', Rule::in([
                 Promo::TYPE_PERIODE,
                 Promo::TYPE_PER_ITEM,
-                // 3 tipe lain di-disable di UI, server tetap accept (strategy
-                // stub return false → tidak pernah apply meski masuk DB).
                 Promo::TYPE_VOUCHER,
                 Promo::TYPE_BUNDLING,
                 Promo::TYPE_TEBUS_MURAH,
@@ -242,14 +250,27 @@ class PromoController extends Controller
             'product_ids.*' => ['integer', 'exists:products,id'],
             'category_ids' => ['nullable', 'array'],
             'category_ids.*' => ['integer', 'exists:categories,id'],
-            // Tipe 3 voucher param — A-Z 0-9 _ - only, max 32
+            // Tipe 3 voucher param
             'voucher_code' => ['nullable', 'string', 'max:32',
                 'regex:/^[A-Z0-9_\-]+$/', $voucherUnique],
+            // Tipe 4 bundling params
+            'bundle_rules' => ['nullable', 'array'],
+            'bundle_rules.*.product_id' => ['required_with:bundle_rules', 'integer', 'exists:products,id'],
+            'bundle_rules.*.qty' => ['required_with:bundle_rules', 'numeric', 'min:0.0001'],
+            // Tipe 5 tebus_murah params
+            'tebus_product_id' => ['nullable', 'integer', 'exists:products,id'],
+            'tebus_price' => ['nullable', 'numeric', 'min:0'],
+            'qualifying_product_ids' => ['nullable', 'array'],
+            'qualifying_product_ids.*' => ['integer', 'exists:products,id'],
+            'qualifying_category_ids' => ['nullable', 'array'],
+            'qualifying_category_ids.*' => ['integer', 'exists:categories,id'],
+            'qualifying_min_qty_per_set' => ['nullable', 'integer', 'min:1'],
+            'max_tebus_per_transaction' => ['nullable', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
             'is_stackable' => ['nullable', 'boolean'],
         ]);
 
-        // Tipe-specific validasi: per_item butuh minimal 1 product/category
+        // Tipe-specific validasi
         if ($data['type'] === Promo::TYPE_PER_ITEM) {
             $hasProducts = ! empty($data['product_ids']);
             $hasCategories = ! empty($data['category_ids']);
@@ -258,10 +279,36 @@ class PromoController extends Controller
             }
         }
 
-        // Tipe-specific validasi: voucher butuh kode terisi
         if ($data['type'] === Promo::TYPE_VOUCHER) {
             if (empty($data['voucher_code'])) {
                 abort(422, 'Tipe Voucher wajib mengisi Kode Voucher.');
+            }
+        }
+
+        if ($data['type'] === Promo::TYPE_BUNDLING) {
+            $rules = $data['bundle_rules'] ?? [];
+            if (count($rules) < 2) {
+                abort(422, 'Tipe Bundling wajib min 2 komponen produk (untuk 1 produk pakai Per-Barang).');
+            }
+            // Unique product_id dalam bundle (1 produk hanya boleh 1 baris)
+            $pids = array_map(fn ($r) => (int) ($r['product_id'] ?? 0), $rules);
+            if (count($pids) !== count(array_unique($pids))) {
+                abort(422, 'Produk di Bundle harus unik (1 produk 1 baris, gabung qty kalau perlu).');
+            }
+        }
+
+        if ($data['type'] === Promo::TYPE_TEBUS_MURAH) {
+            if (empty($data['tebus_product_id'])) {
+                abort(422, 'Tipe Tebus Murah wajib pilih produk tebus.');
+            }
+            if (! isset($data['tebus_price']) || (float) $data['tebus_price'] < 0) {
+                abort(422, 'Tipe Tebus Murah wajib isi harga tebus (≥ 0).');
+            }
+            // Tebus product tidak boleh sama dengan qualifying product (anti-self-discount loop)
+            $tebusPid = (int) $data['tebus_product_id'];
+            $qualifyingPids = array_map('intval', $data['qualifying_product_ids'] ?? []);
+            if (in_array($tebusPid, $qualifyingPids, true)) {
+                abort(422, 'Produk tebus tidak boleh sama dengan produk syarat (akan double-count diri sendiri).');
             }
         }
 
@@ -274,13 +321,38 @@ class PromoController extends Controller
      */
     private function buildConfig(array $data): ?array
     {
-        if ($data['type'] !== Promo::TYPE_PER_ITEM) {
-            return null;
-        }
+        switch ($data['type']) {
+            case Promo::TYPE_PER_ITEM:
+                return [
+                    'product_ids' => array_values(array_unique(array_map('intval', $data['product_ids'] ?? []))),
+                    'category_ids' => array_values(array_unique(array_map('intval', $data['category_ids'] ?? []))),
+                ];
 
-        return [
-            'product_ids' => array_values(array_unique(array_map('intval', $data['product_ids'] ?? []))),
-            'category_ids' => array_values(array_unique(array_map('intval', $data['category_ids'] ?? []))),
-        ];
+            case Promo::TYPE_BUNDLING:
+                $rules = [];
+                foreach ($data['bundle_rules'] ?? [] as $r) {
+                    $rules[] = [
+                        'product_id' => (int) $r['product_id'],
+                        'qty' => (float) $r['qty'],
+                    ];
+                }
+
+                return ['bundle_rules' => $rules];
+
+            case Promo::TYPE_TEBUS_MURAH:
+                return [
+                    'qualifying_product_ids' => array_values(array_unique(array_map('intval', $data['qualifying_product_ids'] ?? []))),
+                    'qualifying_category_ids' => array_values(array_unique(array_map('intval', $data['qualifying_category_ids'] ?? []))),
+                    'qualifying_min_qty_per_set' => max(1, (int) ($data['qualifying_min_qty_per_set'] ?? 1)),
+                    'tebus_product_id' => (int) $data['tebus_product_id'],
+                    'tebus_price' => (float) $data['tebus_price'],
+                    'max_tebus_per_transaction' => isset($data['max_tebus_per_transaction']) && $data['max_tebus_per_transaction'] !== null
+                        ? (int) $data['max_tebus_per_transaction']
+                        : null,
+                ];
+
+            default:
+                return null;
+        }
     }
 }
