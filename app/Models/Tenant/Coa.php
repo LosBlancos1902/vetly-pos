@@ -9,6 +9,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Coa extends Model
 {
     protected $table = 'coa';
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'master';
+
     protected $guarded = [];
     protected $casts = ['is_active' => 'boolean'];
 

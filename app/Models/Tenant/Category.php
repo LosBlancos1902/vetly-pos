@@ -8,6 +8,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Category extends Model
 {
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'master';
+
     protected $guarded = [];
     protected $casts = ['is_active' => 'boolean'];
 

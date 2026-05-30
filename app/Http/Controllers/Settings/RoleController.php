@@ -50,8 +50,19 @@ class RoleController extends Controller
             'permissions.*' => ['string', 'exists:permissions,name'],
         ]);
 
-        $role->syncPermissions($data['permissions'] ?? []);
+        $oldPermissions = $role->getPermissionNames()->all();
+        $newPermissions = $data['permissions'] ?? [];
+
+        $role->syncPermissions($newPermissions);
         Artisan::call('permission:cache-reset');
+
+        // Sync permission = pivot write → log manual untuk Riwayat Aktivitas.
+        activity('roles')
+            ->performedOn($role)
+            ->causedBy($request->user())
+            ->event('permissions_synced')
+            ->withProperties(['old' => $oldPermissions, 'new' => $newPermissions])
+            ->log("Permission role '{$role->name}' diperbarui");
 
         return back()->with('success', "Permission role '{$role->name}' diperbarui.");
     }

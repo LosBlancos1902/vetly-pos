@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PromoApplication extends Model
 {
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'master';
+
     protected $guarded = [];
 
     public $timestamps = false;

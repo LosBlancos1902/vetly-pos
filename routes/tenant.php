@@ -26,6 +26,7 @@ use App\Http\Controllers\POS\CashierController;
 use App\Http\Controllers\POS\ShiftController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Sales\SaleController;
+use App\Http\Controllers\Settings\AuditLogController;
 use App\Http\Controllers\Settings\BrandingController;
 use App\Http\Controllers\Settings\TenantSettingsController;
 use App\Http\Controllers\Settings\RoleController as SettingsRoleController;
@@ -327,6 +328,11 @@ Route::middleware([
             Route::middleware('can:settings.roles')->group(function () {
                 Route::get('/roles', [SettingsRoleController::class, 'index'])->name('roles.index');
                 Route::put('/roles/{role}', [SettingsRoleController::class, 'update'])->name('roles.update');
+            });
+
+            // Riwayat Aktivitas — viewer spatie activity_log (owner + manager).
+            Route::middleware('can:audit.view')->group(function () {
+                Route::get('/audit-log', [AuditLogController::class, 'index'])->name('audit.index');
             });
 
             // Branding Struk — owner-only (gated `settings.tenant`).

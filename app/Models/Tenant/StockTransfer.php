@@ -12,6 +12,11 @@ class StockTransfer extends Model
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
 
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'inventory';
+
     protected $guarded = [];
 
     protected $casts = [

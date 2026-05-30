@@ -13,6 +13,12 @@ class BrandingSettings extends Model
 {
     protected $table = 'branding_settings';
 
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'settings';
+    public const ACTIVITY_EXCEPT = ['logo_data'];
+
     protected $guarded = [];
 
     /**

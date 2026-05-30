@@ -13,6 +13,11 @@ class Warehouse extends Model
     public const TYPE_APOTEK_KLINIK = 'apotek_klinik';
     public const TYPE_GUDANG = 'gudang';
 
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'master';
+
     protected $guarded = [];
 
     protected $casts = [

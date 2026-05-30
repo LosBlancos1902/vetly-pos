@@ -12,6 +12,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.9",
         "phpoffice/phpspreadsheet": "^5.7",
+        "spatie/laravel-activitylog": "^4.12",
         "spatie/laravel-permission": "^6",
         "stancl/tenancy": "^3.9",
         "tightenco/ziggy": "^2.0"

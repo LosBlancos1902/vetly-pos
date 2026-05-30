@@ -13,6 +13,11 @@ class PurchaseRequest extends Model
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
 
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'purchasing';
+
     protected $guarded = [];
     protected $casts = [
         'approved_at' => 'datetime',

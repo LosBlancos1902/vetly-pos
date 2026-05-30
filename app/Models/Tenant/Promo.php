@@ -2,13 +2,20 @@
 
 namespace App\Models\Tenant;
 
+use App\Models\Tenant\Concerns\LogsTenantActivity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Spatie\Activitylog\Traits\LogsActivity;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Promo extends Model
 {
+    use LogsActivity;
+    use LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'master';
+
     protected $guarded = [];
 
     protected $casts = [

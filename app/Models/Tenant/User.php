@@ -15,6 +15,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class User extends BaseUser
 {
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'users';
+    public const ACTIVITY_EXCEPT = ['last_login_at', 'email_verified_at'];
+
     protected $table = 'users';
 
     /**

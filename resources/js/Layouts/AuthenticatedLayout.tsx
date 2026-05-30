@@ -331,6 +331,12 @@ export default function Authenticated({
                     routeMatch: 'settings.roles.*',
                     permission: 'settings.roles',
                 },
+                {
+                    label: 'Riwayat Aktivitas',
+                    href: route('settings.audit.index'),
+                    routeMatch: 'settings.audit.*',
+                    permission: 'audit.view',
+                },
             ],
         },
     ];

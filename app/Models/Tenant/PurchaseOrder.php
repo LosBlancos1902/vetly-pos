@@ -18,6 +18,11 @@ class PurchaseOrder extends Model
     public const PAYMENT_CASH = 'cash';
     public const PAYMENT_TEMPO = 'tempo';
 
+    use \Spatie\Activitylog\Traits\LogsActivity;
+    use \App\Models\Tenant\Concerns\LogsTenantActivity;
+
+    public const ACTIVITY_LOG_NAME = 'purchasing';
+
     protected $guarded = [];
     protected $casts = [
         'approved_at' => 'datetime',

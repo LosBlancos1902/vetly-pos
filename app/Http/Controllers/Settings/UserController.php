@@ -57,6 +57,15 @@ class UserController extends Controller
 
         $user->syncRoles([$data['role']]);
 
+        // Role assignment = pivot write → trait LogsActivity tidak menangkapnya.
+        // Log manual supaya tercatat di Riwayat Aktivitas.
+        activity('users')
+            ->performedOn($user)
+            ->causedBy($request->user())
+            ->event('role_assigned')
+            ->withProperties(['old' => [], 'new' => [$data['role']]])
+            ->log("Role user {$user->name} di-set: {$data['role']}");
+
         return back()->with('success', "User {$user->name} ditambahkan.");
     }
 
@@ -78,7 +87,19 @@ class UserController extends Controller
             $user->password = Hash::make($data['password']);
         }
         $user->save();
+
+        $oldRoles = $user->getRoleNames()->all();
         $user->syncRoles([$data['role']]);
+
+        // Log perubahan role (pivot, tidak ter-capture trait) hanya bila berubah.
+        if ($oldRoles !== [$data['role']]) {
+            activity('users')
+                ->performedOn($user)
+                ->causedBy($request->user())
+                ->event('role_assigned')
+                ->withProperties(['old' => $oldRoles, 'new' => [$data['role']]])
+                ->log("Role user {$user->name} diubah");
+        }
 
         return back()->with('success', "User {$user->name} diperbarui.");
     }

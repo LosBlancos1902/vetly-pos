@@ -54,6 +54,8 @@ class DefaultRolesSeeder extends Seeder
         'settings.tenant',
         'settings.users',
         'settings.roles',
+        // Audit / Riwayat Aktivitas (lihat log perubahan master & settings)
+        'audit.view',
         // Warehouse scope
         'warehouse.view_all',     // see/switch across warehouses (owner/manager)
         // Clinic / apoteker
@@ -81,6 +83,7 @@ class DefaultRolesSeeder extends Seeder
             'reports.financial.view', 'reports.sales.view',
             'reports.purchasing.view', 'reports.inventory.view',
             'settings.users', 'settings.roles',
+            'audit.view',
             'warehouse.view_all',
             // NOTE: no 'settings.tenant'
         ],
