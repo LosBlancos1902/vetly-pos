@@ -125,7 +125,7 @@ class ProductExcelExporter
             ['1. Kolom WAJIB', '', ''],
             ['', 'nama', 'Nama produk'],
             ['', 'kategori', 'HARUS sudah terdaftar — lihat daftar di bawah'],
-            ['', 'jenis', 'Salah satu dari: saleable_retail, raw_material, compoundable_drug, service, service_with_consumption'],
+            ['', 'jenis', 'Slug: saleable_retail (Barang) | raw_material (Bahan Baku) | compoundable_drug (Obat Racikan) | service (Jasa) | service_with_consumption (Jasa + Bahan)'],
             ['', 'kode_barang', 'SKU unik per tenant. Match by kolom ini untuk update.'],
             ['', 'satuan_base', 'Kode satuan base (mis. pcs/ml/g). Lihat daftar di bawah.'],
             ['', "harga_{$defaultSlug}_base", "Wajib diisi (tier default = \"".($defaultTier?->name ?? 'Eceran').'")'],

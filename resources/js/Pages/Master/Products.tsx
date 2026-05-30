@@ -25,6 +25,11 @@ import {
 } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { formatQty, rupiah, inputMoney, inputQty } from '@/lib/utils';
+import {
+    PRODUCT_TYPES,
+    PRODUCT_TYPE_LABEL as TYPE_LABEL,
+    PRODUCT_TYPE_DESCRIPTION,
+} from '@/lib/productTypes';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -127,17 +132,6 @@ interface FormState {
     units: UnitRow[];
 }
 
-const PRODUCT_TYPES = [
-    { value: 'saleable_retail', label: 'Persediaan (Retail)' },
-    { value: 'raw_material', label: 'Bahan Baku' },
-    { value: 'compoundable_drug', label: 'Obat Racik' },
-    { value: 'service', label: 'Jasa' },
-    { value: 'service_with_consumption', label: 'Jasa + Konsumsi Bahan' },
-];
-
-const TYPE_LABEL: Record<string, string> = Object.fromEntries(
-    PRODUCT_TYPES.map((t) => [t.value, t.label]),
-);
 
 function uid(): string {
     return Math.random().toString(36).slice(2, 9);
@@ -504,6 +498,9 @@ export default function Products({ products, categories, brands, units, tiers, f
                                                 <option key={t.value} value={t.value}>{t.label}</option>
                                             ))}
                                         </select>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {PRODUCT_TYPE_DESCRIPTION[form.type] ?? ''}
+                                        </p>
                                     </div>
                                     <div>
                                         <Label htmlFor="f-barcode">UPC / Barcode</Label>

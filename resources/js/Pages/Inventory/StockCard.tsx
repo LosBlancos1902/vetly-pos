@@ -16,6 +16,7 @@ import {
     TableRow,
 } from '@/Components/ui/table';
 import { formatDateID, formatQty, rupiah } from '@/lib/utils';
+import { productTypeLabel } from '@/lib/productTypes';
 
 interface Warehouse {
     id: number;
@@ -187,7 +188,7 @@ export default function StockCard({
                         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
                             <h3 className="text-lg font-medium">{product.name}</h3>
                             <span className="text-sm text-muted-foreground">{product.sku}</span>
-                            <Badge variant="muted">{product.type}</Badge>
+                            <Badge variant="muted">{productTypeLabel(product.type)}</Badge>
                         </div>
                         {currentBalance && currentWarehouse && (
                             <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">

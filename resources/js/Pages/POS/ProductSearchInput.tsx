@@ -27,11 +27,14 @@ interface Props {
     onScanSubmit: (raw: string) => Promise<AddResult>;
 }
 
+// Badge POS pakai label SHORT (uppercase) supaya muat di list compact —
+// terpisah dari label form panjang ("Barang"/"Obat Racikan"/..). Slug
+// value-nya tetap match Product::TYPE_* di backend.
 const TYPE_LABEL: Record<string, { label: string; variant: 'default' | 'info' | 'secondary' }> = {
-    saleable_retail: { label: 'RETAIL', variant: 'secondary' },
+    saleable_retail: { label: 'BARANG', variant: 'secondary' },
     compoundable_drug: { label: 'RACIK', variant: 'default' },
     service: { label: 'JASA', variant: 'info' },
-    service_with_consumption: { label: 'JASA', variant: 'info' },
+    service_with_consumption: { label: 'JASA+BHN', variant: 'info' },
 };
 
 export default function ProductSearchInput({ warehouseId, onSelectProduct, onScanSubmit }: Props) {

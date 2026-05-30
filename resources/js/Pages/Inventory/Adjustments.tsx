@@ -24,6 +24,7 @@ import {
     TableRow,
 } from '@/Components/ui/table';
 import { formatDateID, formatQty, rupiah } from '@/lib/utils';
+import { productTypeLabel } from '@/lib/productTypes';
 
 interface Warehouse { id: number; code: string; name: string }
 interface ProductLite { id: number; sku: string; name: string; type: string; cost_avg: string }
@@ -360,7 +361,7 @@ export default function Adjustments({ movements, warehouses, reasonLabels, filte
                                     <div>
                                         <div className="font-medium">{product.name}</div>
                                         <div className="text-xs text-muted-foreground">
-                                            {product.sku} · {product.type}
+                                            {product.sku} · {productTypeLabel(product.type)}
                                         </div>
                                     </div>
                                     <Button type="button" size="sm" variant="ghost"

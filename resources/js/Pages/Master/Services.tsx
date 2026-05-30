@@ -239,7 +239,7 @@ export default function Services({ bundles, serviceProducts, componentProducts }
                                         </TableCell>
                                         <TableCell>
                                             <Badge variant={b.product.type === 'service_with_consumption' ? 'info' : 'muted'}>
-                                                {b.product.type === 'service_with_consumption' ? 'w/ konsumsi' : 'jasa murni'}
+                                                {b.product.type === 'service_with_consumption' ? 'Jasa + Bahan' : 'Jasa'}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right">{rupiah(b.service_fee)}</TableCell>
@@ -292,7 +292,7 @@ export default function Services({ bundles, serviceProducts, componentProducts }
                                     {serviceProducts.map((p) => (
                                         <option key={p.id} value={p.id}>
                                             {p.name} ({p.sku}){' '}
-                                            {p.type === 'service_with_consumption' ? '· w/ konsumsi' : '· murni'}
+                                            {p.type === 'service_with_consumption' ? '· Jasa + Bahan' : '· Jasa'}
                                         </option>
                                     ))}
                                 </select>
@@ -343,7 +343,7 @@ export default function Services({ bundles, serviceProducts, componentProducts }
                                     Komponen{' '}
                                     {needsConsumption && (
                                         <span className="text-xs text-destructive">
-                                            (wajib ≥1 untuk service_with_consumption)
+                                            (wajib ≥1 untuk jenis "Jasa + Bahan")
                                         </span>
                                     )}
                                 </Label>

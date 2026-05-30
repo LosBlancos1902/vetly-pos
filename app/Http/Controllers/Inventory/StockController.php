@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
 use App\Models\Tenant\Inventory;
-use App\Models\Tenant\Product;
 use App\Models\Tenant\Warehouse;
+use App\Support\ProductTypes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -75,13 +75,7 @@ class StockController extends Controller
                 ->where('is_active', true)
                 ->orderBy('name')
                 ->get(['id', 'code', 'name']),
-            'productTypes' => [
-                Product::TYPE_SALEABLE_RETAIL => 'Retail',
-                Product::TYPE_COMPOUNDABLE_DRUG => 'Compoundable',
-                Product::TYPE_RAW_MATERIAL => 'Raw Material',
-                Product::TYPE_SERVICE => 'Service',
-                Product::TYPE_SERVICE_WITH_CONSUMPTION => 'Service w/ konsumsi',
-            ],
+            'productTypes' => ProductTypes::labels(),
             'summary' => $summary,
             'summaryWarehouse' => $summaryWarehouse,
             'filters' => [
