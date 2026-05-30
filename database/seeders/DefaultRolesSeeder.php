@@ -56,6 +56,12 @@ class DefaultRolesSeeder extends Seeder
         'settings.roles',
         // Audit / Riwayat Aktivitas (lihat log perubahan master & settings)
         'audit.view',
+        // Finance — COA editor + Kas & Bank
+        'coa.view',
+        'coa.manage',
+        'finance.view',
+        'finance.cash_bank.post',
+        'finance.cash_bank.approve',
         // Warehouse scope
         'warehouse.view_all',     // see/switch across warehouses (owner/manager)
         // Clinic / apoteker
@@ -84,6 +90,8 @@ class DefaultRolesSeeder extends Seeder
             'reports.purchasing.view', 'reports.inventory.view',
             'settings.users', 'settings.roles',
             'audit.view',
+            'coa.view', 'coa.manage',
+            'finance.view', 'finance.cash_bank.post', 'finance.cash_bank.approve',
             'warehouse.view_all',
             // NOTE: no 'settings.tenant'
         ],
@@ -111,6 +119,13 @@ class DefaultRolesSeeder extends Seeder
         'super_user' => [
             'pos.access', 'pos.sell', 'pos.sell.stock_minus', 'pos.sale.void',
             'pos.discount.manual', 'inventory.adjustment',
+        ],
+        'finance' => [
+            'finance.view', 'finance.cash_bank.post', 'finance.cash_bank.approve',
+            'coa.view', 'coa.manage',
+            'accounting.view', 'accounting.journal.post',
+            'reports.financial.view',
+            'audit.view',
         ],
     ];
 

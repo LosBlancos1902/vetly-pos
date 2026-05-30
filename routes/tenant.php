@@ -28,6 +28,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Sales\SaleController;
 use App\Http\Controllers\Settings\AuditLogController;
 use App\Http\Controllers\Settings\BrandingController;
+use App\Http\Controllers\Settings\CoaController;
 use App\Http\Controllers\Settings\TenantSettingsController;
 use App\Http\Controllers\Settings\RoleController as SettingsRoleController;
 use App\Http\Controllers\Settings\UserController as SettingsUserController;
@@ -275,7 +276,7 @@ Route::middleware([
         Route::get('/sales/{sale}', [SaleController::class, 'show'])->name('sales.show');
 
         // Accounting
-        Route::get('/accounting/journal', [JournalController::class, 'index'])->name('accounting.journal');
+        Route::get('/accounting/journal', [JournalController::class, 'index'])->middleware('can:accounting.view')->name('accounting.journal');
 
         // Laporan (Batch A — READ-ONLY).
         // Permission split per kategori: financial (owner/manager),
@@ -333,6 +334,14 @@ Route::middleware([
             // Riwayat Aktivitas — viewer spatie activity_log (owner + manager).
             Route::middleware('can:audit.view')->group(function () {
                 Route::get('/audit-log', [AuditLogController::class, 'index'])->name('audit.index');
+            });
+
+            // COA Editor — Chart of Accounts (finance/owner/manager).
+            Route::middleware('can:coa.view')->get('/coa', [CoaController::class, 'index'])->name('coa.index');
+            Route::middleware('can:coa.manage')->group(function () {
+                Route::post('/coa', [CoaController::class, 'store'])->name('coa.store');
+                Route::put('/coa/{coa}', [CoaController::class, 'update'])->name('coa.update');
+                Route::delete('/coa/{coa}', [CoaController::class, 'destroy'])->name('coa.destroy');
             });
 
             // Branding Struk — owner-only (gated `settings.tenant`).

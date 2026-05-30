@@ -58,6 +58,9 @@ class CoaSeeder extends Seeder
             ['6199', 'Beban Lain-lain', 'expense', 'debit', '6100', 2],
         ];
 
+        // Akun kas/bank (metadata cash_type) — verbatim.
+        $cashType = ['1101' => 'cash', '1102' => 'cash', '1103' => 'bank', '1104' => 'bank'];
+
         // Pass 1: insert/update all rows without parent.
         foreach ($accounts as [$code, $name, $type, $nb, $parentCode, $level]) {
             DB::table('coa')->updateOrInsert(
@@ -68,6 +71,7 @@ class CoaSeeder extends Seeder
                     'normal_balance' => $nb,
                     'level' => $level,
                     'is_active' => true,
+                    'cash_type' => $cashType[$code] ?? null,
                     'updated_at' => now(),
                     'created_at' => now(),
                 ],

@@ -337,6 +337,12 @@ export default function Authenticated({
                     routeMatch: 'settings.audit.*',
                     permission: 'audit.view',
                 },
+                {
+                    label: 'Chart of Accounts',
+                    href: route('settings.coa.index'),
+                    routeMatch: 'settings.coa.*',
+                    permission: 'coa.view',
+                },
             ],
         },
     ];

@@ -82,6 +82,9 @@ it('STRUKTUR: model master pakai trait LogsActivity, model POS/auto TIDAK', func
         \App\Models\Tenant\Coa::class,
         \App\Models\Tenant\BrandingSettings::class,
         \App\Models\Tenant\User::class,
+        // Akuntansi — cakupan diperluas (modul Kas & Bank): jurnal manual + backdate ter-audit.
+        \App\Models\Tenant\Journal::class,
+        \App\Models\Tenant\JournalEntry::class,
     ];
     foreach ($logged as $model) {
         expect(in_array(LogsActivity::class, class_uses_recursive($model), true))
@@ -93,7 +96,6 @@ it('STRUKTUR: model master pakai trait LogsActivity, model POS/auto TIDAK', func
         \App\Models\Tenant\SaleItem::class,
         \App\Models\Tenant\SalePayment::class,
         \App\Models\Tenant\StockMovement::class,
-        \App\Models\Tenant\JournalEntry::class,
         \App\Models\Tenant\Inventory::class,
     ];
     foreach ($notLogged as $model) {

@@ -360,9 +360,27 @@ class JournalEngine
     }
 
     /**
+     * Jurnal manual generik (Kas & Bank, koreksi, dll). Balance D=K + existence
+     * kode COA divalidasi, atomic. $effectiveDate (Y-m-d) untuk backdate;
+     * default hari ini.
+     *
      * @param  array<int, array{0:string,1:float,2:float}>  $lines  [coa_code, debit, credit]
      */
-    private function post(string $description, string $refType, ?int $refId, array $lines): Journal
+    public function postManualEntry(
+        string $description,
+        string $refType,
+        ?int $refId,
+        array $lines,
+        ?string $effectiveDate = null,
+    ): Journal {
+        return $this->post($description, $refType, $refId, $lines, $effectiveDate);
+    }
+
+    /**
+     * @param  array<int, array{0:string,1:float,2:float}>  $lines  [coa_code, debit, credit]
+     * @param  string|null  $date  tanggal efektif (Y-m-d); null = hari ini (backward-compatible).
+     */
+    private function post(string $description, string $refType, ?int $refId, array $lines, ?string $date = null): Journal
     {
         $totalDebit = round(array_sum(array_column($lines, 1)), 2);
         $totalCredit = round(array_sum(array_column($lines, 2)), 2);
@@ -373,10 +391,27 @@ class JournalEngine
             );
         }
 
-        return DB::transaction(function () use ($description, $refType, $refId, $lines) {
+        // Validasi semua kode COA (baris non-zero) exist — cegah coa_id null
+        // diam-diam (juga jadi guard kalau akun sistem terlanjur hilang).
+        $codes = [];
+        foreach ($lines as [$code, $debit, $credit]) {
+            if (($debit + $credit) > 0) {
+                $codes[$code] = true;
+            }
+        }
+        $codes = array_keys($codes);
+        $coaIds = Coa::whereIn('code', $codes)->pluck('id', 'code');
+        $missing = array_values(array_diff($codes, $coaIds->keys()->all()));
+        if ($missing !== []) {
+            throw new RuntimeException(
+                'Kode COA tidak ditemukan: '.implode(', ', $missing)." ({$description})"
+            );
+        }
+
+        return DB::transaction(function () use ($description, $refType, $refId, $lines, $date, $coaIds) {
             $journal = Journal::create([
                 'journal_no' => 'JRN-'.now()->format('YmdHis').'-'.random_int(100, 999),
-                'date' => now()->toDateString(),
+                'date' => $date ?? now()->toDateString(),
                 'ref_type' => $refType,
                 'ref_id' => $refId,
                 'description' => $description,
@@ -385,14 +420,12 @@ class JournalEngine
                 'posted_by' => Auth::id(),
             ]);
 
-            $coaIds = Coa::whereIn('code', array_column($lines, 0))->pluck('id', 'code');
-
             foreach ($lines as [$code, $debit, $credit]) {
                 if (($debit + $credit) <= 0) {
                     continue; // skip zero lines
                 }
                 $journal->entries()->create([
-                    'coa_id' => $coaIds[$code] ?? null,
+                    'coa_id' => $coaIds[$code],
                     'debit' => number_format($debit, 2, '.', ''),
                     'credit' => number_format($credit, 2, '.', ''),
                 ]);
