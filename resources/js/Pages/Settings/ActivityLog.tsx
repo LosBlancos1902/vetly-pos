@@ -386,10 +386,8 @@ export default function ActivityLog({
         date_to: filters.date_to ?? '',
     });
     const [detail, setDetail] = useState<ActivityRow | null>(null);
-    const [showRaw, setShowRaw] = useState(false);
 
     function openDetail(a: ActivityRow) {
-        setShowRaw(false);
         setDetail(a);
     }
 
@@ -758,28 +756,6 @@ export default function ActivityLog({
                                             ))}
                                         </tbody>
                                     </table>
-                                )}
-                            </div>
-
-                            {/* Raw JSON (collapsible) — untuk developer/owner */}
-                            <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowRaw((v) => !v)}
-                                    className="text-xs text-indigo-600 hover:underline"
-                                >
-                                    {showRaw
-                                        ? '▾ Sembunyikan JSON mentah'
-                                        : '▸ Lihat JSON mentah'}
-                                </button>
-                                {showRaw && (
-                                    <pre className="mt-2 max-h-72 overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">
-                                        {JSON.stringify(
-                                            detail.properties ?? {},
-                                            null,
-                                            2,
-                                        )}
-                                    </pre>
                                 )}
                             </div>
                         </div>
