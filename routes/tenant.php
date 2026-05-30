@@ -26,6 +26,7 @@ use App\Http\Controllers\POS\CashierController;
 use App\Http\Controllers\POS\ShiftController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Sales\SaleController;
+use App\Http\Controllers\Settings\BrandingController;
 use App\Http\Controllers\Settings\TenantSettingsController;
 use App\Http\Controllers\Settings\RoleController as SettingsRoleController;
 use App\Http\Controllers\Settings\UserController as SettingsUserController;
@@ -326,6 +327,15 @@ Route::middleware([
             Route::middleware('can:settings.roles')->group(function () {
                 Route::get('/roles', [SettingsRoleController::class, 'index'])->name('roles.index');
                 Route::put('/roles/{role}', [SettingsRoleController::class, 'update'])->name('roles.update');
+            });
+
+            // Branding Struk — owner-only (gated `settings.tenant`).
+            // CRUD non-destruktif: hanya ubah tampilan struk ke depan, TIDAK
+            // menyentuh jurnal / StockMovement / sale.*.
+            Route::middleware('can:settings.tenant')->group(function () {
+                Route::get('/branding', [BrandingController::class, 'index'])->name('branding.index');
+                Route::post('/branding/tenant', [BrandingController::class, 'updateTenant'])->name('branding.update_tenant');
+                Route::put('/branding/warehouses/{warehouse}', [BrandingController::class, 'updateWarehouse'])->name('branding.update_warehouse');
             });
         });
     });

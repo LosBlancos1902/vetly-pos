@@ -314,6 +314,12 @@ export default function Authenticated({
                     permission: 'settings.tenant',
                 },
                 {
+                    label: 'Branding Struk',
+                    href: route('settings.branding.index'),
+                    routeMatch: 'settings.branding.*',
+                    permission: 'settings.tenant',
+                },
+                {
                     label: 'User',
                     href: route('settings.users.index'),
                     routeMatch: 'settings.users.*',

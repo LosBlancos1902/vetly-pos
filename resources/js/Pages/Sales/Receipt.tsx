@@ -49,16 +49,27 @@ interface Sale {
         code: string;
         name: string;
         address: string | null;
+        phone: string | null;
+        footer_override: string | null;
         warehouse_type: string;
     } | null;
     cashier: { id: number; name: string } | null;
     promo_applications: PromoApplication[];
 }
 
+interface Branding {
+    brand_name: string | null;
+    logo_data: string | null;
+    footer_text: string | null;
+    npwp: string | null;
+    license_no: string | null;
+}
+
 interface Props {
     sale: Sale;
     width: '58mm' | '80mm';
     tenantName: string;
+    branding: Branding;
     printedAt: string;
 }
 
@@ -83,7 +94,7 @@ const METHOD_LABEL: Record<string, string> = {
  * Print: tombol Print panggil window.print(). CSS @media print hide
  * navigation/tombol, paksa @page size sesuai lebar thermal.
  */
-export default function Receipt({ sale, width, tenantName, printedAt }: Props) {
+export default function Receipt({ sale, width, tenantName, branding, printedAt }: Props) {
     // 58mm ≈ 32 chars; 80mm ≈ 48 chars (perkiraan font 12px).
     const widthPx = width === '58mm' ? '58mm' : '80mm';
     const fontSize = width === '58mm' ? 'text-[10px]' : 'text-[11px]';
@@ -181,6 +192,7 @@ export default function Receipt({ sale, width, tenantName, printedAt }: Props) {
                     <ReceiptPaper
                         sale={sale}
                         tenantName={tenantName}
+                        branding={branding}
                         widthPx={widthPx}
                         fontSize={fontSize}
                         formatDateTime={formatDateTime}
@@ -195,6 +207,7 @@ export default function Receipt({ sale, width, tenantName, printedAt }: Props) {
                 <ReceiptPaper
                     sale={sale}
                     tenantName={tenantName}
+                    branding={branding}
                     widthPx={widthPx}
                     fontSize={fontSize}
                     formatDateTime={formatDateTime}
@@ -209,6 +222,7 @@ export default function Receipt({ sale, width, tenantName, printedAt }: Props) {
 function ReceiptPaper({
     sale,
     tenantName,
+    branding,
     widthPx,
     fontSize,
     formatDateTime,
@@ -217,6 +231,7 @@ function ReceiptPaper({
 }: {
     sale: Sale;
     tenantName: string;
+    branding: Branding;
     widthPx: string;
     fontSize: string;
     formatDateTime: (iso: string) => string;
@@ -227,6 +242,13 @@ function ReceiptPaper({
     const customer = sale.customer;
     const promoTotal = Number(sale.promo_discount_amount ?? 0);
     const manualDiscount = Number(sale.discount_amount);
+
+    // Header brand: branding.brand_name → tenant name (fallback).
+    // Cabang ditampilkan terpisah (warehouse name) supaya tetap jelas
+    // walaupun brand_name diset.
+    const brandLine = (branding.brand_name?.trim() || tenantName).toUpperCase();
+    // Footer: warehouse override (kalau ada) → tenant footer_text → fallback teks default.
+    const footerText = (wh?.footer_override?.trim() || branding.footer_text?.trim() || 'Terima kasih atas kunjungan Anda');
 
     return (
         <div
@@ -244,12 +266,29 @@ function ReceiptPaper({
 
             {/* HEADER */}
             <div className="text-center">
-                <div className="text-sm font-bold uppercase">
-                    {wh?.name ?? tenantName}
-                </div>
+                {branding.logo_data && (
+                    <div className="mb-1 flex justify-center">
+                        <img
+                            src={branding.logo_data}
+                            alt="logo"
+                            className="max-h-16 max-w-full object-contain"
+                        />
+                    </div>
+                )}
+                <div className="text-sm font-bold uppercase">{brandLine}</div>
+                {wh?.name && wh.name.toUpperCase() !== brandLine && (
+                    <div className="text-[11px] font-semibold">{wh.name}</div>
+                )}
                 {wh?.address && <div className="whitespace-pre-line">{wh.address}</div>}
+                {wh?.phone && <div className="text-[10px]">Telp: {wh.phone}</div>}
                 {wh?.code && (
                     <div className="text-[10px] text-gray-700">Cabang: {wh.code}</div>
+                )}
+                {branding.npwp && (
+                    <div className="text-[10px] text-gray-700">NPWP: {branding.npwp}</div>
+                )}
+                {branding.license_no && (
+                    <div className="text-[10px] text-gray-700">Izin: {branding.license_no}</div>
                 )}
             </div>
 
@@ -360,7 +399,7 @@ function ReceiptPaper({
 
             {/* FOOTER */}
             <div className="text-center text-[10px]">
-                <div>Terima kasih atas kunjungan Anda</div>
+                <div className="whitespace-pre-line">{footerText}</div>
                 <div className="mt-1 text-gray-500">
                     Dicetak: {formatDateTime(printedAt)}
                 </div>

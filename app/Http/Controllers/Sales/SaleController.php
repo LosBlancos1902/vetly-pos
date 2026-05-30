@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Sales;
 
 use App\Http\Controllers\Controller;
+use App\Models\Tenant\BrandingSettings;
 use App\Models\Tenant\Sale;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -55,17 +56,28 @@ class SaleController extends Controller
             'items.unit:id,code,name',
             'payments',
             'customer:id,code,name',
-            'warehouse:id,code,name,address,warehouse_type',
+            'warehouse:id,code,name,address,phone,footer_override,warehouse_type',
             'cashier:id,name',
             'promoApplications.promo:id,name,type',
         ]);
 
         $width = $request->get('width') === '58mm' ? '58mm' : '80mm';
 
+        // Branding terbaru (tdk historis per-transaksi — keputusan: simplicity).
+        // Singleton row dibuat on-the-fly kalau belum ada.
+        $b = BrandingSettings::singleton();
+
         return Inertia::render('Sales/Receipt', [
             'sale' => $sale,
             'width' => $width,
             'tenantName' => tenant() ? (string) tenant('id') : 'VETLY POS',
+            'branding' => [
+                'brand_name' => $b->brand_name,
+                'logo_data' => $b->logo_data,
+                'footer_text' => $b->footer_text,
+                'npwp' => $b->npwp,
+                'license_no' => $b->license_no,
+            ],
             'printedAt' => now()->toIso8601String(),
         ]);
     }

@@ -1,6 +1,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Button } from '@/Components/ui/button';
 import { rupiah } from '@/lib/utils';
 
 export default function Detail({ sale }: { sale: any }) {
@@ -10,6 +11,11 @@ export default function Detail({ sale }: { sale: any }) {
         >
             <Head title={sale.invoice_no} />
             <div className="mx-auto max-w-3xl space-y-4 p-4">
+                <div className="flex justify-end">
+                    <Link href={route('sales.receipt', sale.id)}>
+                        <Button variant="outline" size="sm">Lihat Struk</Button>
+                    </Link>
+                </div>
                 <Card>
                     <CardHeader>
                         <CardTitle>{sale.invoice_no}</CardTitle>

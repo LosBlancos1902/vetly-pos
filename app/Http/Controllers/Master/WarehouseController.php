@@ -180,6 +180,8 @@ class WarehouseController extends Controller
                 Warehouse::TYPE_APOTEK_KLINIK, Warehouse::TYPE_GUDANG,
             ])],
             'address' => ['nullable', 'string', 'max:500'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'footer_override' => ['nullable', 'string', 'max:500'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
         ]);

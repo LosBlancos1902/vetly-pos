@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Sales\SaleController;
+use App\Models\Tenant\BrandingSettings;
 use App\Models\Tenant\Customer;
 use App\Models\Tenant\Product;
 use App\Models\Tenant\Promo;
@@ -149,11 +150,13 @@ beforeEach(function () {
     Auth::login(ownerForReceipt());
     cleanupReceiptSales();
     Promo::query()->delete();
+    BrandingSettings::query()->delete();
 });
 
 afterEach(function () {
     cleanupReceiptSales();
     Promo::query()->delete();
+    BrandingSettings::query()->delete();
 });
 
 // ─── RENDER ─────────────────────────────────────────────────────────
@@ -336,4 +339,68 @@ it('VOID: sale.status void diteruskan ke props (FE tampilkan banner VOID)', func
     $props = callReceipt($sale)
         ->toResponse(request())->getOriginalContent()->getData()['page']['props'];
     expect($props['sale']['status'])->toBe('void');
+});
+
+// ─── BRANDING ──────────────────────────────────────────────────────
+
+it('BRANDING: props always include branding key (null fallback OK)', function () {
+    $w = Warehouse::firstOrFail();
+    $sale = buildSale($w);
+
+    $props = callReceipt($sale)
+        ->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+
+    expect($props)->toHaveKey('branding');
+    expect($props['branding'])->toHaveKeys(['brand_name', 'logo_data', 'footer_text', 'npwp', 'license_no']);
+    expect($props['branding']['brand_name'])->toBeNull();
+});
+
+it('BRANDING: tenant branding diset → ke-pass ke props receipt', function () {
+    $w = Warehouse::firstOrFail();
+    BrandingSettings::singleton()->update([
+        'brand_name' => 'My Brand',
+        'footer_text' => 'Footer brand',
+        'npwp' => '01.123.456.7-001.000',
+    ]);
+
+    $sale = buildSale($w);
+
+    $props = callReceipt($sale)
+        ->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+
+    expect($props['branding']['brand_name'])->toBe('My Brand');
+    expect($props['branding']['footer_text'])->toBe('Footer brand');
+    expect($props['branding']['npwp'])->toBe('01.123.456.7-001.000');
+});
+
+it('BRANDING: warehouse phone + footer_override ke-pass via props sale.warehouse', function () {
+    $wh = Warehouse::firstOrCreate(
+        ['code' => 'WH-RECEIPT-BR'],
+        ['name' => 'WH Brand', 'warehouse_type' => 'petshop', 'is_active' => true, 'address' => 'Jl. A'],
+    );
+    $wh->update(['phone' => '021-7777', 'footer_override' => 'Cabang ini override']);
+
+    $sale = buildSale($wh);
+
+    $props = callReceipt($sale)
+        ->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+
+    expect($props['sale']['warehouse']['phone'])->toBe('021-7777');
+    expect($props['sale']['warehouse']['footer_override'])->toBe('Cabang ini override');
+});
+
+it('BRANDING: data transaksi (sale.*) tidak berubah saat branding diupdate', function () {
+    $w = Warehouse::firstOrFail();
+    $sale = buildSale($w);
+    $totalBefore = (string) $sale->total;
+    $subtotalBefore = (string) $sale->subtotal;
+
+    BrandingSettings::singleton()->update(['brand_name' => 'Brand Baru', 'footer_text' => 'Footer baru']);
+
+    $props = callReceipt($sale)
+        ->toResponse(request())->getOriginalContent()->getData()['page']['props'];
+
+    // sale.* tetap utuh — branding hanya tampilan.
+    expect((string) $props['sale']['total'])->toBe($totalBefore);
+    expect((string) $props['sale']['subtotal'])->toBe($subtotalBefore);
 });
